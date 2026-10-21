@@ -81,6 +81,32 @@ python -m pytest tests -q
 - **History:** every run is saved with its full activity log.
 - Vague requests such as "find all the bugs" are refused before any tokens are spent: Patchwright fixes a bug you describe, it does not hunt for unknown ones.
 
+## Real-world demo: a real bug in a real library, a real pull request
+
+The benchmark above is synthetic, so we also ran Patchwright on a real, closed issue in a real open-source library:
+[tkem/cachetools#423](https://github.com/tkem/cachetools/issues/423) (`RRCache.popitem()` on an empty cache leaks the `choice` function's exception instead of raising `KeyError`).
+
+- **Target:** [rohith95-p/cachetools-bugfix-demo](https://github.com/rohith95-p/cachetools-bugfix-demo), a standalone copy (not a fork, so nothing touches upstream) of cachetools at the commit just before upstream fixed it. 337 existing tests.
+- **Input:** only the text of the upstream issue (`examples/cachetools-423/issue.txt`).
+- **Judge:** the upstream project's own regression test, which the agent never sees. It fails on the buggy code and passes with the real upstream fix (validated before any model call).
+- **Result:** [pull request #1](https://github.com/rohith95-p/cachetools-bugfix-demo/pull/1). Nemotron 3 Super fixed it alone in 14 steps (about 3 minutes, about $0.055). The patch is two files: a 2-line emptiness check in `RRCache.popitem()` (the same approach upstream took) and a new test file. The upstream test passes with it.
+- **Tavily on a real repository:** before the model starts, the harness searches developer sources for related discussion (project name plus issue title) and shows the sources in the live view and the pull request. It found related cachetools issues and the PyPI page, **not the fix**; the model still had to find the bug, write a failing test and make the change.
+
+### The honest history: 6 runs, 2 solved
+
+Each failure exposed a real flaw that the toy benchmark never showed, and each was fixed in Patchwright itself (with a regression test) before the next run. The raw runs are in `results/realworld/attempts/`.
+
+| Run | Outcome | What it exposed, and the fix |
+|---|---|---|
+| 1 | not solved | a model closed its file block with `FILE>>}`; the file was lost three times. The parser now accepts a mistyped or missing closing marker |
+| 2 | not solved | the model rewrote a 500-line source file from a 40-line excerpt and destroyed the module. Existing files are now changed with a targeted `edit`, and the sandbox refuses to overwrite a large file with a much shorter one |
+| 3 | not solved | a garbled edit was read as an empty replacement and deleted a method. Edits use SEARCH/REPLACE blocks, and an edit without a readable replacement is refused, never applied |
+| 4 | **solved**, but messy | the patch shipped five scratch files and Tavily returned a pest-control page. Scratch files are now excluded; Tavily searches developer sources with a clean query |
+| 5 | not solved | the model put the edit markers inside JSON and then read whole files (328k tokens). Edits given as JSON fields are understood; reads are kept to small ranges and capped |
+| 6 | **solved**, clean | the pull request above |
+
+Total for all six runs: about 1.3 million tokens and about $0.75. So on this real task Patchwright succeeds in some runs and not others: the result is 2 of 6, and the 4 failures are in the table, not hidden. Real repositories are harder than our toy bugs, and the loop-safety limits (token caps, repeat detection, refusing destructive edits) are what kept the four failures cheap.
+
 ## Spending safety
 
 Credits are limited, so loops are blocked at several levels (all covered by tests that use a scripted fake model and spend nothing):
@@ -166,16 +192,18 @@ With multi-action turns, tiered costs $0.024 per fixed bug and Ultra-only $0.029
 
 - Every run executes in a throwaway Docker container with memory and CPU limits; files can only be written inside the repository.
 - The agent never merges anything and never edits existing tests (the harness rejects it).
-- Public hosting: set `DEMO_MODE=1` to allow only the bundled bugs and disable custom repositories and benchmark control. See [DEPLOY.md](DEPLOY.md).
+- Public hosting: set `DEMO_MODE=1` to allow only the bundled bugs and disable custom repositories and benchmark control, and to cap spend: at most 40 runs per day (`DEMO_MAX_RUNS_PER_DAY`) and 4 per visitor per hour (`DEMO_MAX_RUNS_PER_IP_HOUR`). See [DEPLOY.md](DEPLOY.md).
 - Known limit: the sandbox has network access so dependencies can be installed. Treat untrusted repositories accordingly.
 
 ## Layout
 
 ```
-patchwright/   agent loop, sandbox, model client, doctor/configure, PR proof card
-bench/         20-bug benchmark, runner with spend limits, fairness validator
+patchwright/   agent loop, sandbox (edit, scratch-file filter), context finder, Tavily tools, model client, doctor/configure, PR proof card
+bench/         20-bug benchmark, runner with spend limits, fairness validator, efficiency and real-world runners
 webapp/        FastAPI server and single-page UI
 dashboard/     benchmark result aggregation
+examples/      the real cachetools issue and the upstream test used as the judge
+deploy/        one-script VM setup for the public demo
 tests/         unit tests, free loop-protection tests (fake model), web API tests
 ```
 

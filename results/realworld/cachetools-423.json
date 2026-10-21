@@ -1,0 +1,262 @@
+{
+ "case": "tkem/cachetools#423",
+ "strategy": "tiered",
+ "solved": true,
+ "upstream_test_passes": true,
+ "tier": "super",
+ "steps": 14,
+ "seconds": 190.7,
+ "model_calls": 17,
+ "tokens": 156694,
+ "cost_usd": 0.0549,
+ "summary": "Root cause:\u202fRRCache.popitem() calls the user\u2011provided choice function on __keys without first checking whether the cache is empty, so any exception raised by choice for an empty sequence propagates to the caller instead of being converted to a KeyError.  \nPatch fix:\u202fAdd an explicit emptiness check (`if not self.__keys:`) before invoking choice, raising a uniform KeyError with the cache\u2019s name when empty, and only then call choice and pop the selected key. This makes RRCache behave like the other cache classes regardless of the choice function used.",
+ "diff": "diff --git a/src/cachetools/__init__.py b/src/cachetools/__init__.py\nindex c9eecb2..66aa00b 100644\n--- a/src/cachetools/__init__.py\n+++ b/src/cachetools/__init__.py\n@@ -357,12 +357,10 @@ class RRCache(Cache):\n \n     def popitem(self):\n         \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n-        try:\n-            key = self.__choice(self.__keys)\n-        except IndexError:\n+        if not self.__keys:\n             raise KeyError(\"%s is empty\" % type(self).__name__) from None\n-        else:\n-            return (key, self.pop(key))\n+        key = self.__choice(self.__keys)\n+        return (key, self.pop(key))\n \n     def clear(self):\n         Cache.clear(self)\ndiff --git a/tests/test_rr_popitem_empty.py b/tests/test_rr_popitem_empty.py\nnew file mode 100644\nindex 0000000..f028460\n--- /dev/null\n+++ b/tests/test_rr_popitem_empty.py\n@@ -0,0 +1,79 @@\n+import pytest\n+import cachetools\n+\n+\n+def test_rr_popitem_empty_with_min_choice():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_max_choice():\n+    cache = cachetools.RRCache(maxsize=2, choice=max)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_next_iter_choice():\n+    cache = cachetools.RRCache(maxsize=2, choice=next)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_custom_choice_that_raises_value_error():\n+    def my_choice(seq):\n+        raise ValueError(\"custom\")\n+    cache = cachetools.RRCache(maxsize=2, choice=my_choice)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_custom_choice_that_raises_runtime_error():\n+    def my_choice(seq):\n+        raise RuntimeError(\"custom\")\n+    cache = cachetools.RRCache(maxsize=2, choice=my_choice)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_non_empty_works():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    cache[1] = \"one\"\n+    cache[2] = \"two\"\n+    # Should not raise\n+    key, value = cache.popitem()\n+    assert key in (1, 2)\n+    assert value in (\"one\", \"two\")\n+    # Second pop\n+    key2, value2 = cache.popitem()\n+    assert key2 not in (key,)  # the other key\n+    assert value2 not in (value,)\n+    # Now empty\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_cache_after_clear():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    cache[1] = \"one\"\n+    cache.clear()\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_single_item_then_empty():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    cache[1] = \"one\"\n+    key, value = cache.popitem()\n+    assert key == 1\n+    assert value == \"one\"\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\nwarning: in the working copy of 'tests/test_rr_popitem_empty.py', LF will be replaced by CRLF the next time Git touches it\n",
+ "sources": [
+  {
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "title": "Ignore KeyError in cache \u00b7 Issue #231 \u00b7 tkem/cachetools \u00b7 GitHub",
+   "url": "https://github.com/tkem/cachetools/issues/231"
+  },
+  {
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "title": "KeyError on value assignment \u00b7 Issue #90 \u00b7 tkem/cachetools \u00b7 GitHub",
+   "url": "https://github.com/tkem/cachetools/issues/90"
+  },
+  {
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "title": "cachetools \u00b7 PyPI",
+   "url": "https://pypi.python.org/pypi/cachetools"
+  }
+ ],
+ "events": [
+  {
+   "type": "start",
+   "repo": "https://github.com/rohith95-p/cachetools-bugfix-demo.git",
+   "tiers": [
+    "super",
+    "ultra"
+   ],
+   "models": {
+    "nano": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "super": "nvidia/nemotron-3-super-120b-a12b",
+    "ultra": "nvidia/Nemotron-3-Ultra-550b-a55b"
+   },
+   "t": 0.0
+  },
+  {
+   "type": "research",
+   "kind": "related discussion",
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "sources": [
+    {
+     "title": "Ignore KeyError in cache \u00b7 Issue #231 \u00b7 tkem/cachetools \u00b7 GitHub",
+     "url": "https://github.com/tkem/cachetools/issues/231"
+    },
+    {
+     "title": "KeyError on value assignment \u00b7 Issue #90 \u00b7 tkem/cachetools \u00b7 GitHub",
+     "url": "https://github.com/tkem/cachetools/issues/90"
+    },
+    {
+     "title": "cachetools \u00b7 PyPI",
+     "url": "https://pypi.python.org/pypi/cachetools"
+    }
+   ],
+   "error": "",
+   "t": 27.0
+  },
+  {
+   "type": "tier_start",
+   "tier": "super",
+   "model": "nvidia/nemotron-3-super-120b-a12b",
+   "t": 27.0
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "write",
+   "detail": "tests/test_rr_popitem_empty.py\nimport pytest\nimport cachetools\n\n\ndef test_rr_popitem_empty_with_min_choice():\n    cache = cachetools.RRCache(maxsize=2, choice=min)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\n\ndef test_rr_popitem_empty_with_max_choice():\n    cache = cachetools.RRCache(maxsize=2, choice=max)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\n\ndef test_rr_popitem_empty_with_next_iter_choice():\n    cache = cachetools.RRCache(maxsize=2, choice=next)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is em",
+   "obs": "wrote tests/test_rr_popitem_empty.py",
+   "t": 47.2
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest tests/test_rr_popitem_empty.py -v",
+   "obs": "exit=1\n============================= test session starts ==============================\nplatform linux -- Python 3.11.17, pytest-9.1.1, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /work\nconfigfile: pyproject.toml\ncollecting ... collected 8 items\n\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_min_choice FAILED [ 12%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_max_choice FAILED [ 25%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_next_iter_choice FAILED [ 37%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_custom_choice_that_raises_value_error FAILED [ 50%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_custom_choice_that_raises_runtime_error FAILED [ 62%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_non_empty_works FAILED   [ 75%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_cache_after_clear FAILED [ 87%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_single_item_then_empty FAILED [100%]\n\n=================================== FAILURES ===================================\n____________________ test_rr_popitem_empty_with_min_choice _____________________\n\n    def test_rr_popitem_empty_with_min_choice():\n        cache = cachetools.RRCache(maxsize=2, choice=min)\n        with pytest.raises(KeyError) as excinfo:\n>           cache.popitem()\n\ntests/test_rr_popitem_empty.py:8: \n_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ \n\nself = RRCache({}, maxsize=",
+   "t": 48.5
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "edit",
+   "detail": "src/cachetools/__init__.py\n-     def popitem(self):\n        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n        try:\n            key = self.__choice(self.__keys)\n        except IndexError:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        else:\n            return (key, self.pop(key))\n+     def popitem(self):\n        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n        if not self.__keys:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        key = self.__choice(self.__keys)\n        return (key, self.pop(key))",
+   "obs": "edited src/cachetools/__init__.py: replaced 8 line(s) with 6 line(s)",
+   "t": 71.8
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest tests/test_rr_popitem_empty.py -v",
+   "obs": "exit=1\n============================= test session starts ==============================\nplatform linux -- Python 3.11.17, pytest-9.1.1, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /work\nconfigfile: pyproject.toml\ncollecting ... collected 8 items\n\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_min_choice FAILED [ 12%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_max_choice FAILED [ 25%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_next_iter_choice FAILED [ 37%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_custom_choice_that_raises_value_error FAILED [ 50%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_custom_choice_that_raises_runtime_error FAILED [ 62%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_non_empty_works FAILED   [ 75%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_cache_after_clear FAILED [ 87%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_single_item_then_empty FAILED [100%]\n\n=================================== FAILURES ===================================\n____________________ test_rr_popitem_empty_with_min_choice _____________________\n\n    def test_rr_popitem_empty_with_min_choice():\n        cache = cachetools.RRCache(maxsize=2, choice=min)\n        with pytest.raises(KeyError) as excinfo:\n            cache.popitem()\n>       assert str(excinfo.value) == \"RRCache is empty\"\nE       assert \"'RRCache is empty'\" == 'RRCache is empty'\nE         \nE         - RRCache ",
+   "t": 72.7
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "write",
+   "detail": "debug.py\nimport cachetools\ncache = cachetools.RRCache(maxsize=2, choice=min)\ntry:\n    cache.popitem()\nexcept KeyError as e:\n    print(\"Exception:\", e)\n    print(\"Type:\", type(e))\n    print(\"Args:\", e.args)\n    print(\"Str:\", str(e))\n    print(\"Repr:\", repr(e))\n",
+   "obs": "wrote debug.py",
+   "t": 87.4
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python debug.py",
+   "obs": "exit=0\nException: 'RRCache is empty'\nType: <class 'KeyError'>\nArgs: ('RRCache is empty',)\nStr: 'RRCache is empty'\nRepr: KeyError('RRCache is empty')\n",
+   "t": 87.7
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "write",
+   "detail": "debug2.py\nimport cachetools\ncache = cachetools.RRCache(maxsize=2, choice=min)\ntry:\n    cache.popitem()\nexcept KeyError as e:\n    print(\"e.args:\", e.args)\n    print(\"e.args[0]:\", e.args[0])\n    print(\"str(e):\", str(e))\n    print(\"repr(str(e)):\", repr(str(e)))\n    print(\"type(e):\", type(e))\n",
+   "obs": "wrote debug2.py",
+   "t": 95.9
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python debug2.py",
+   "obs": "exit=0\ne.args: ('RRCache is empty',)\ne.args[0]: RRCache is empty\nstr(e): 'RRCache is empty'\nrepr(str(e)): \"'RRCache is empty'\"\ntype(e): <class 'KeyError'>\n",
+   "t": 96.1
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest -q",
+   "obs": "exit=1\n........................................................................ [ 20%]\n........................................................................ [ 41%]\n........................................................................ [ 62%]\n....................................................FFFFFFFF............ [ 83%]\n.........................................................                [100%]\n=================================== FAILURES ===================================\n____________________ test_rr_popitem_empty_with_min_choice _____________________\n\n    def test_rr_popitem_empty_with_min_choice():\n        cache = cachetools.RRCache(maxsize=2, choice=min)\n        with pytest.raises(KeyError) as excinfo:\n            cache.popitem()\n>       assert str(excinfo.value) == \"RRCache is empty\"\nE       assert \"'RRCache is empty'\" == 'RRCache is empty'\nE         \nE         - RRCache is empty\nE         + 'RRCache is empty'\nE         ? +                +\n\ntests/test_rr_popitem_empty.py:9: AssertionError\n____________________ test_rr_popitem_empty_with_max_choice _____________________\n\n    def test_rr_popitem_empty_with_max_choice():\n        cache = cachetools.RRCache(maxsize=2, choice=max)\n        with pytest.raises(KeyError) as excinfo:\n            cache.popitem()\n>       assert str(excinfo.value) == \"RRCache is empty\"\nE       assert \"'RRCache is empty'\" == 'RRCache is empty'\nE         \nE         - RRCache is empty\nE         + 'RRCache is empty'\nE         ? +                ",
+   "t": 109.7
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest tests/test_rr_popitem_empty.py -v",
+   "obs": "exit=1\n============================= test session starts ==============================\nplatform linux -- Python 3.11.17, pytest-9.1.1, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /work\nconfigfile: pyproject.toml\ncollecting ... collected 8 items\n\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_min_choice FAILED [ 12%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_max_choice FAILED [ 25%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_next_iter_choice FAILED [ 37%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_custom_choice_that_raises_value_error FAILED [ 50%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_with_custom_choice_that_raises_runtime_error FAILED [ 62%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_non_empty_works FAILED   [ 75%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_cache_after_clear FAILED [ 87%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_single_item_then_empty FAILED [100%]\n\n=================================== FAILURES ===================================\n____________________ test_rr_popitem_empty_with_min_choice _____________________\n\n    def test_rr_popitem_empty_with_min_choice():\n        cache = cachetools.RRCache(maxsize=2, choice=min)\n        with pytest.raises(KeyError) as excinfo:\n            cache.popitem()\n>       assert str(excinfo.value) == \"RRCache is empty\"\nE       assert \"'RRCache is empty'\" == 'RRCache is empty'\nE         \nE         - RRCache ",
+   "t": 120.8
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "write",
+   "detail": "tests/test_rr_popitem_empty.py\nimport pytest\nimport cachetools\n\n\ndef test_rr_popitem_empty_with_min_choice():\n    cache = cachetools.RRCache(maxsize=2, choice=min)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert excinfo.value.args[0] == \"RRCache is empty\"\n\n\ndef test_rr_popitem_empty_with_max_choice():\n    cache = cachetools.RRCache(maxsize=2, choice=max)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert excinfo.value.args[0] == \"RRCache is empty\"\n\n\ndef test_rr_popitem_empty_with_next_iter_choice():\n    cache = cachetools.RRCache(maxsize=2, choice=next)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert excinfo.value.args[0] == \"RRCa",
+   "obs": "wrote tests/test_rr_popitem_empty.py",
+   "t": 131.0
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest tests/test_rr_popitem_empty.py -q",
+   "obs": "exit=0\n........                                                                 [100%]\n8 passed in 0.20s\n",
+   "t": 131.7
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest -q",
+   "obs": "exit=0\n........................................................................ [ 20%]\n........................................................................ [ 41%]\n........................................................................ [ 62%]\n........................................................................ [ 83%]\n.........................................................                [100%]\n345 passed in 5.32s\n",
+   "t": 140.1
+  },
+  {
+   "type": "verify",
+   "tier": "super",
+   "ok": true,
+   "auto": false,
+   "why": "verified",
+   "t": 150.6
+  },
+  {
+   "type": "review",
+   "tier": "super",
+   "ok": false,
+   "why": "F\n=================================== FAILURES ===================================\n________________ test_rr_popitem_empty_various_choice_functions ________________\n\n    def test_rr_popitem_empty_various_choice_functions():\n        for choice in (min, max, lambda seq: seq[0], lambda seq: seq[-1]):\n            cache = cachetools.RRCache(maxsize=2, choice=choice)\n            with pytest.raises(KeyError) as exc:\n                cache.popitem()\n>           assert str(exc.value) == \"RRCache is empty\"\nE           assert \"'RRCache is empty'\" == 'RRCache is empty'\nE             \nE             - RRCache is empty\nE             + 'RRCache is empty'\nE             ? +                +\n\ntest_edge_review_tmp.py:9: AssertionError\n=========================== short test summary info ============================\nFAILED test_edge_review_tmp.py::test_rr_popitem_empty_various_choice_functions\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed in 0.13s\n",
+   "t": 159.6
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "finish",
+   "detail": "",
+   "obs": "An independent edge-case review of your fix found a failing case:\nF\n=================================== FAILURES ===================================\n________________ test_rr_popitem_empty_various_choice_functions ________________\n\n    def test_rr_popitem_empty_various_choice_functions():\n        for choice in (min, max, lambda seq: seq[0], lambda seq: seq[-1]):\n            cache = cachetools.RRCache(maxsize=2, choice=choice)\n            with pytest.raises(KeyError) as exc:\n                cache.popitem()\n>           assert str(exc.value) == \"RRCache is empty\"\nE           assert \"'RRCache is empty'\" == 'RRCache is empty'\nE             \nE             - RRCache is empty\nE             + 'RRCache is empty'\nE             ? +                +\n\ntest_edge_review_tmp.py:9: AssertionError\n=========================== short test summary info ============================\nFAILED test_edge_review_tmp.py::test_rr_popitem_empty_various_choice_functions\n!!!!!!!!!!!!!!!!!!!!!!!!!! stopping after 1 failures !!!!!!!!!!!!!!!!!!!!!!!!!!!\n1 failed in 0.13s\n\nDecide whether your fix is incomplete. If so, fix the source code and finish again. If the review test itself contradicts the issue, finish again unchanged.",
+   "t": 159.6
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "sed -n '330,380p' src/cachetools/__init__.py",
+   "obs": "exit=0\n    \"\"\"Random Replacement (RR) cache implementation.\"\"\"\n\n    def __init__(self, maxsize, choice=random.choice, getsizeof=None):\n        Cache.__init__(self, maxsize, getsizeof)\n        self.__choice = choice\n        self.__index = {}\n        self.__keys = []\n\n    @property\n    def choice(self):\n        \"\"\"The `choice` function used by the cache.\"\"\"\n        return self.__choice\n\n    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n        cache_setitem(self, key, value)\n        if key not in self.__index:\n            self.__index[key] = len(self.__keys)\n            self.__keys.append(key)\n\n    def __delitem__(self, key, cache_delitem=Cache.__delitem__):\n        cache_delitem(self, key)\n        index = self.__index.pop(key)\n        if index != len(self.__keys) - 1:\n            last = self.__keys[-1]\n            self.__keys[index] = last\n            self.__index[last] = index\n        self.__keys.pop()\n\n    def popitem(self):\n        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n        if not self.__keys:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        key = self.__choice(self.__keys)\n        return (key, self.pop(key))\n\n    def clear(self):\n        Cache.clear(self)\n        self.__index.clear()\n        del self.__keys[:]\n\n\nclass _TimedCache(Cache):\n    \"\"\"Base class for time aware cache implementations.\"\"\"\n\n    class _Timer:\n        def __init__(self, timer):\n            self.__timer = timer\n            self.__",
+   "t": 166.3
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "write",
+   "detail": "check.py\nimport cachetools\n\nfor choice in (min, max, lambda seq: seq[0], lambda seq: seq[-1]):\n    cache = cachetools.RRCache(maxsize=2, choice=choice)\n    try:\n        cache.popitem()\n    except KeyError as e:\n        print(f\"Choice {choice}:\")\n        print(f\"  str(e): {str(e)!r}\")\n        print(f\"  e.args: {e.args}\")\n        print(f\"  e.args[0]: {e.args[0]!r}\")\n        print()\nEOF\n</check.py>\n>>>>>>> REPLACE\n</file>\n</path>\n</action>\n",
+   "obs": "wrote check.py",
+   "t": 175.3
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python check.py",
+   "obs": "exit=1\n  File \"/work/check.py\", line 14\n    </check.py>\n    ^\nSyntaxError: invalid syntax\n",
+   "t": 176.3
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "write",
+   "detail": "check.py\nimport cachetools\n\nfor choice in (min, max, lambda seq: seq[0], lambda seq: seq[-1]):\n    cache = cachetools.RRCache(maxsize=2, choice=choice)\n    try:\n        cache.popitem()\n    except KeyError as e:\n        print(f\"Choice {choice}:\")\n        print(f\"  str(e): {str(e)!r}\")\n        print(f\"  e.args: {e.args}\")\n        print(f\"  e.args[0]: {e.args[0]!r}\")\n        print()\nEOF\n</check.py>\n>>>>>>> REPLACE\n</file>\n</path>\n</action>\n",
+   "obs": "wrote check.py",
+   "t": 178.2
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python check.py 2>&1",
+   "obs": "exit=1\n  File \"/work/check.py\", line 14\n    </check.py>\n    ^\nSyntaxError: invalid syntax\n",
+   "t": 179.7
+  },
+  {
+   "type": "verify",
+   "tier": "super",
+   "ok": true,
+   "auto": true,
+   "why": "verified",
+   "t": 187.8
+  },
+  {
+   "type": "done",
+   "solved": true,
+   "tier": "super",
+   "steps": 14,
+   "summary": "The bug occurs because when the cache is empty, `__choice(self.__keys)` raises an `IndexError` from the supplied choice function, but the original code only caught `IndexError` and then re\u2011raised a generic `KeyError`, masking the actual cause. The patch removes the exception handling and instead explicitly checks `if not self.__keys` before calling `__choice`, raising a `KeyError` with a clear message when the cache is empty. This ensures the correct exception type and message are always produced for an empty cache.",
+   "auto": true,
+   "diff": "diff --git a/src/cachetools/__init__.py b/src/cachetools/__init__.py\nindex c9eecb2..66aa00b 100644\n--- a/src/cachetools/__init__.py\n+++ b/src/cachetools/__init__.py\n@@ -357,12 +357,10 @@ class RRCache(Cache):\n \n     def popitem(self):\n         \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n-        try:\n-            key = self.__choice(self.__keys)\n-        except IndexError:\n+        if not self.__keys:\n             raise KeyError(\"%s is empty\" % type(self).__name__) from None\n-        else:\n-            return (key, self.pop(key))\n+        key = self.__choice(self.__keys)\n+        return (key, self.pop(key))\n \n     def clear(self):\n         Cache.clear(self)\ndiff --git a/tests/test_rr_popitem_empty.py b/tests/test_rr_popitem_empty.py\nnew file mode 100644\nindex 0000000..f028460\n--- /dev/null\n+++ b/tests/test_rr_popitem_empty.py\n@@ -0,0 +1,79 @@\n+import pytest\n+import cachetools\n+\n+\n+def test_rr_popitem_empty_with_min_choice():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_max_choice():\n+    cache = cachetools.RRCache(maxsize=2, choice=max)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_next_iter_choice():\n+    cache = cachetools.RRCache(maxsize=2, choice=next)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_custom_choice_that_raises_value_error():\n+    def my_choice(seq):\n+        raise ValueError(\"custom\")\n+    cache = cachetools.RRCache(maxsize=2, choice=my_choice)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_with_custom_choice_that_raises_runtime_error():\n+    def my_choice(seq):\n+        raise RuntimeError(\"custom\")\n+    cache = cachetools.RRCache(maxsize=2, choice=my_choice)\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_non_empty_works():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    cache[1] = \"one\"\n+    cache[2] = \"two\"\n+    # Should not raise\n+    key, value = cache.popitem()\n+    assert key in (1, 2)\n+    assert value in (\"one\", \"two\")\n+    # Second pop\n+    key2, value2 = cache.popitem()\n+    assert key2 not in (key,)  # the other key\n+    assert value2 not in (value,)\n+    # Now empty\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_empty_cache_after_clear():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    cache[1] = \"one\"\n+    cache.clear()\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\n+\n+\n+def test_rr_popitem_single_item_then_empty():\n+    cache = cachetools.RRCache(maxsize=2, choice=min)\n+    cache[1] = \"one\"\n+    key, value = cache.popitem()\n+    assert key == 1\n+    assert value == \"one\"\n+    with pytest.raises(KeyError) as excinfo:\n+        cache.popitem()\n+    assert excinfo.value.args[0] == \"RRCache is empty\"\nwarning: in the working copy of 'tests/test_rr_popitem_empty.py', LF will be replaced by CRLF the next time Git touches it\n",
+   "repro_cmd": "python -m pytest -q tests/test_rr_popitem_empty.py",
+   "suite_cmd": "python -m pytest -q",
+   "t": 190.4
+  }
+ ],
+ "summary_nano_original": "The bug occurs because when the cache is empty, `__choice(self.__keys)` raises an `IndexError` from the supplied choice function, but the original code only caught `IndexError` and then re\u2011raised a generic `KeyError`, masking the actual cause. The patch removes the exception handling and instead explicitly checks `if not self.__keys` before calling `__choice`, raising a `KeyError` with a clear message when the cache is empty. This ensures the correct exception type and message are always produced for an empty cache."
+}

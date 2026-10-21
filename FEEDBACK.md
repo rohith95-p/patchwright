@@ -23,3 +23,9 @@ Written while building Patchwright. Items marked (observed) happened to us; item
 
 - (observed) The free hosted endpoint at build.nvidia.com returned 404 for some listed models (for example Nemotron 3 Super) on a developer key, and was rate limited (HTTP 429) under parallel load, which made it unsuitable for benchmarking and a reason to move to Token Factory.
 - (observed) Nano's difficulty judgments did not predict which bugs a larger model would fail: asked to rate bugs easy/medium/hard it called every one easy or medium, and the larger model failed on half of each group. It was, however, reliable at refusing non-bug requests (10 of 10 in a small hand-written check).
+
+## Tavily
+
+- (observed) `include_domains` works well for bug research: restricting searches to developer sources (GitHub, Stack Overflow, Python docs, PyPI) replaced a pest-control page with the project's own GitHub issues for the same query.
+- (observed) Once or twice a search returned HTTP 200 with an empty result list and succeeded on retry. We now retry, and fall back to an unrestricted search when the restricted one is empty, but a documented `results: []` reason would help.
+- (observed) The usage endpoint (`/usage`) made it easy to confirm how many credits our runs used.

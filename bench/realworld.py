@@ -37,6 +37,7 @@ def upstream_check(sb) -> bool:
 
 
 def main() -> None:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # summaries contain characters a Windows console cannot print
     ap = argparse.ArgumentParser()
     ap.add_argument("--repo", required=True, help="URL or path of the repository at the pre-fix commit")
     ap.add_argument("--strategy", default="tiered", choices=TIERS)

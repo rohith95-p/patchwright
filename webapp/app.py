@@ -25,7 +25,7 @@ import uuid
 from pathlib import Path
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -46,6 +46,9 @@ STATIC = Path(__file__).parent / "static"
 MAX_CONCURRENT = int(os.getenv("MAX_CONCURRENT_RUNS", "2"))
 DEMO_MODE = os.getenv("DEMO_MODE", "0") == "1"  # public hosting: bundled bugs only, no custom repos, no benchmark control
 MAX_QUEUE = int(os.getenv("MAX_QUEUED_RUNS", "6"))
+DEMO_MAX_PER_DAY = int(os.getenv("DEMO_MAX_RUNS_PER_DAY", "40"))      # a public demo spends real credits: cap it
+DEMO_MAX_PER_IP_HOUR = int(os.getenv("DEMO_MAX_RUNS_PER_IP_HOUR", "4"))
+RATE: dict[str, list[float]] = {}
 
 app = FastAPI(title="Patchwright")
 RUNS: dict[str, dict] = {}
@@ -138,7 +141,7 @@ def examples() -> list[dict]:
 
 
 @app.post("/api/runs")
-def start_run(req: RunRequest) -> dict:
+def start_run(req: RunRequest, request: Request) -> dict:
     if req.mode not in CONFIGS:
         raise HTTPException(400, f"mode must be one of {list(CONFIGS)}")
     example = None
@@ -160,6 +163,15 @@ def start_run(req: RunRequest) -> dict:
         repo, issue, label = req.repo_url, req.issue.strip(), req.repo_url
     if sum(1 for r in RUNS.values() if r["status"] in ("queued", "running")) >= MAX_QUEUE:
         raise HTTPException(429, "The server is busy. Try again in a minute.")
+    if DEMO_MODE:
+        now = time.time()
+        if sum(1 for r in RUNS.values() if now - r["created"] < 86400) >= DEMO_MAX_PER_DAY:
+            raise HTTPException(429, "The demo has reached its daily limit of runs to protect its credits. Please try again tomorrow, or run it yourself from the repository.")
+        ip = request.client.host if request.client else "unknown"
+        recent = [t for t in RATE.get(ip, []) if now - t < 3600]
+        if len(recent) >= DEMO_MAX_PER_IP_HOUR:
+            raise HTTPException(429, f"Limit of {DEMO_MAX_PER_IP_HOUR} runs per hour per visitor reached on this demo.")
+        RATE[ip] = recent + [now]
     rid = uuid.uuid4().hex[:10]
     run = {"id": rid, "label": label, "issue": issue, "mode": req.mode, "status": "queued", "events": [],
            "created": time.time(), "example": bool(example)}

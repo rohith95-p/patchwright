@@ -152,7 +152,8 @@ def test_harness_finishes_for_a_model_that_fixed_the_bug_but_never_called_finish
     res, evs = events_of(llm, url, task["issue"], ["super"])
     assert res.solved, "a verified fix must count even if the model never said finish"
     assert any(e["type"] == "verify" and e["ok"] and e.get("auto") for e in evs)
-    assert llm.calls == agent.STEPS["super"], "it should have used its steps, then been verified by the harness"
+    assert llm.calls == agent.STEPS["super"] + 1, "all its steps, then one call for the solving model to describe its patch"
+    assert res.summary, "the pull-request summary must not be empty"
 
 
 def test_auto_finish_cannot_pass_a_wrong_fix(repo):

@@ -4,7 +4,11 @@ The app needs Docker on the machine that runs it (the agent starts a sandbox con
 runs on a VM, not on a serverless platform. A small Linux VM works. Nebius AI Cloud VMs are a natural
 fit and show another Nebius service in use, but any Linux host with Docker works.
 
-## On a fresh Ubuntu VM
+## Fastest path: one script
+
+On a fresh Ubuntu VM, `deploy/setup_vm.sh` installs Docker and Patchwright, asks you to fill in `.env`, checks the keys and models, and starts the service in demo mode (optionally with HTTPS via Caddy). Read it first; it has not yet been run on a real VM by the author.
+
+## The same thing by hand: a fresh Ubuntu VM
 
 ```bash
 sudo apt-get update && sudo apt-get install -y docker.io git python3-venv

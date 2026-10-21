@@ -59,3 +59,26 @@ def test_busy_server_refuses_new_runs(monkeypatch):
 def test_bench_endpoint_shape():
     b = client.get("/api/bench").json()
     assert {"results", "prices_are_estimates", "tasks"} <= set(b) and len(b["tasks"]) == 20
+
+
+def test_demo_mode_caps_runs_per_visitor_and_per_day_to_protect_credits(monkeypatch):
+    monkeypatch.setattr(webapp, "DEMO_MODE", True)
+    monkeypatch.setattr(webapp, "_worker", lambda *a, **k: None)          # never call a model in this test
+    monkeypatch.setattr(webapp, "RATE", {})
+    monkeypatch.setattr(webapp, "DEMO_MAX_PER_IP_HOUR", 2)
+    monkeypatch.setattr(webapp, "RUNS", {})
+    ok = [client.post("/api/runs", json={"example_id": "avg-offbyone"}).status_code for _ in range(3)]
+    assert ok == [200, 200, 429], "the third run from the same visitor within the hour must be refused"
+    monkeypatch.setattr(webapp, "RATE", {})
+    monkeypatch.setattr(webapp, "DEMO_MAX_PER_DAY", 2)                     # two runs already exist today
+    r = client.post("/api/runs", json={"example_id": "avg-offbyone"})
+    assert r.status_code == 429 and "daily limit" in r.json()["detail"]
+
+
+def test_limits_do_not_apply_outside_demo_mode(monkeypatch):
+    monkeypatch.setattr(webapp, "DEMO_MODE", False)
+    monkeypatch.setattr(webapp, "_worker", lambda *a, **k: None)
+    monkeypatch.setattr(webapp, "RATE", {})
+    monkeypatch.setattr(webapp, "RUNS", {})
+    monkeypatch.setattr(webapp, "DEMO_MAX_PER_IP_HOUR", 1)
+    assert [client.post("/api/runs", json={"example_id": "avg-offbyone"}).status_code for _ in range(3)] == [200, 200, 200]

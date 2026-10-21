@@ -13,6 +13,7 @@ from pathlib import Path
 def main() -> None:
     if len(sys.argv) < 2:
         raise SystemExit(__doc__)
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
     cmd = sys.argv[1]
     if cmd == "doctor":
         from .doctor import doctor

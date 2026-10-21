@@ -294,13 +294,14 @@ def related_query(repo_url: str, issue: str) -> str:
     return f"{' '.join(words) or name} python {title}".strip()
 
 
-def summarize_fix(llm: LLM, issue: str, diff: str) -> str:
-    """Two plain sentences for the pull request: the root cause and what the patch changes. Nano is cheap and enough."""
-    prompt = (f"Bug report title: {issue.strip().splitlines()[0][:200] if issue.strip() else ''}\n\nPatch:\n{diff[:5000]}\n\n"
+def summarize_fix(llm: LLM, issue: str, diff: str, tier: str = "nano") -> str:
+    """Two or three plain sentences for the pull request: the root cause and what the patch changes. It is written by the
+    model that solved the task, from the issue and the patch, so the explanation matches what was actually fixed."""
+    prompt = (f"Bug report:\n{issue.strip()[:1500]}\n\nPatch:\n{diff[:5000]}\n\n"
               "In at most 3 sentences, state the root cause of the bug and what this patch changes to fix it. "
-              "Plain text, no preamble, no markdown.")
+              "Be precise and do not claim anything the patch does not do. Plain text, no preamble, no markdown.")
     try:
-        text = llm.chat("nano", [{"role": "user", "content": prompt}], temperature=0.1, max_tokens=900)
+        text = llm.chat(tier, [{"role": "user", "content": prompt}], temperature=0.1, max_tokens=900)
     except Exception:  # noqa: BLE001
         return ""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
@@ -405,8 +406,8 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 return None, why
             patch_text = sb.diff()
             summary = act.get("summary", "")
-            if auto:  # the model never explained its fix, so have the cheap model describe it from the diff
-                summary = summarize_fix(llm, issue, patch_text) or summary
+            if auto:  # the model never explained its fix, so have it describe the patch from the diff
+                summary = summarize_fix(llm, issue, patch_text, tier) or summary
             res = Result(True, tier, steps, summary, patch_text, list(sources), time.time() - t0, None, bad)
             res.hidden_ok = post_check(sb) if post_check else None
             emit({"type": "done", "solved": True, "tier": tier, "steps": steps, "summary": res.summary, "auto": auto,
