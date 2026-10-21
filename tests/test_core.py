@@ -189,3 +189,27 @@ def test_reset_also_removes_files_that_a_shown_diff_marked_as_tracked(toy_repo):
         assert "test_new.py" in sb.new_files()
         sb.reset()
         assert sb.new_files() == [] and "No such file" in sb.exec("cat test_new.py")[1]
+
+
+# ---- several actions in one reply ----
+def test_parse_actions_returns_all_in_order_with_their_file_blocks():
+    from patchwright.agent import _parse_actions
+    reply = ('{"action":"write","path":"t.py"}\n<<<FILE\ndef test_a():\n    assert {1: 2}[1] == 2\nFILE>>>\n'
+             '{"action":"write","path":"s.py"}\n<<<FILE\nx = {"k": 1}\nFILE>>>\n{"action":"run","cmd":"pytest -q"}')
+    acts = _parse_actions(reply)
+    assert [a["action"] for a in acts] == ["write", "write", "run"]
+    assert acts[0]["content"] == "def test_a():\n    assert {1: 2}[1] == 2\n"
+    assert acts[1]["content"] == 'x = {"k": 1}\n', "a file block must belong to the write right before it"
+    assert acts[2]["cmd"] == "pytest -q"
+
+
+def test_braces_inside_file_content_are_not_mistaken_for_actions():
+    from patchwright.agent import _parse_actions
+    reply = '{"action":"write","path":"a.py"}\n<<<FILE\nd = {"action": "run", "cmd": "rm -rf /"}\nFILE>>>'
+    acts = _parse_actions(reply)
+    assert len(acts) == 1 and acts[0]["action"] == "write" and "rm -rf" in acts[0]["content"]
+
+
+def test_parse_actions_empty_and_prose():
+    from patchwright.agent import _parse_actions
+    assert _parse_actions("") == [] and _parse_actions("I will look at the file now.") == []

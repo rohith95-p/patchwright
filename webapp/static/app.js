@@ -231,10 +231,11 @@ async function pageBench(app) {
   const data = await api("/api/bench");
   const R = data.results, keys = ["tiered", "routed", "super", "ultra"].filter(k => R[k]);
   const note = data.prices_are_estimates ? `<div class="banner">Dollar figures use estimated per-token prices (see <code>patchwright/prices.json</code>), not official Nebius billing. Fix rates, steps and times are measured.</div>` : "";
+  const rnote = R.routed ? `<div class="banner">Read the Routed row with care: Nano rated every benchmark bug easy or medium, so routed took the same path as Tiered. The gap between those two rows is run-to-run noise (about ±3 of 40), not a routing benefit.</div>` : "";
   app.innerHTML = `
     <h1>Does routing between models actually pay off?</h1>
     <p class="lede">Every strategy runs the same bugs. A fix counts only if a hidden test the agent never saw passes. The question: can a cheap-first, escalate-when-stuck route match the strongest model for less money?</p>
-    ${note}
+    ${note}${rnote}
     <div id="benchbody"></div>
     ${CONFIG.demo_mode ? "" : `<div class="card sec"><h2>Run a benchmark</h2>
       <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">

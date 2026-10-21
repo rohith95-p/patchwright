@@ -49,7 +49,25 @@ def compare(data: dict[str, list[dict]]) -> tuple[dict, int]:
     return {c: summarise([r for r in rows if key(r) in common]) for c, rows in data.items()}, len(common)
 
 
-def markdown(stats: dict, n_common: int, total_runs: dict) -> str:
+def breakeven(data: dict[str, list[dict]], common: set) -> str | None:
+    """How much more per token Ultra must cost than Super for tiered to beat Ultra-only on cost per fixed bug."""
+    if "tiered" not in data or "ultra" not in data:
+        return None
+    t = [r for r in data["tiered"] if key(r) in common]
+    u = [r for r in data["ultra"] if key(r) in common]
+    tok = lambda rows, tier: sum(r.get("by_tier", {}).get(tier, {}).get("tokens", 0) for r in rows)  # noqa: E731
+    ft, fu = sum(1 for r in t if r.get("hidden_ok")), sum(1 for r in u if r.get("hidden_ok"))
+    if not ft or not fu:
+        return None
+    a, b = tok(t, "super") / ft, tok(u, "ultra") / fu - tok(t, "ultra") / ft
+    if b <= 0:
+        return None
+    return (f"Cost sensitivity: per fixed bug, tiered uses {tok(t, 'super') / ft:,.0f} Super + {tok(t, 'ultra') / ft:,.0f} Ultra tokens, "
+            f"Ultra-only uses {tok(u, 'ultra') / fu:,.0f} Ultra tokens. Tiered is cheaper than Ultra-only only if Ultra costs more than "
+            f"{a / b:.1f}x Super per token; at equal prices it would cost {100 * ((a + tok(t, 'ultra') / ft) / (tok(u, 'ultra') / fu) - 1):.0f}% more.")
+
+
+def markdown(stats: dict, n_common: int, total_runs: dict, sens: str | None = None) -> str:
     out = [f"Compared on the same **{n_common} runs** for every strategy (20 bugs, up to 2 repeats each). "
            "\"Truly fixed\" means the hidden test the agent never saw also passes.", "",
            "| Strategy | Truly fixed | Avg time per bug | Tokens | Est. cost | Est. cost per fixed bug |",
@@ -83,6 +101,8 @@ def markdown(stats: dict, n_common: int, total_runs: dict) -> str:
     extra = {NAMES[c]: v for c, v in total_runs.items() if v != n_common}
     if extra:
         notes.append("Runs available per strategy before aligning: " + ", ".join(f"{k} {v}" for k, v in total_runs.items()) + ".")
+    if sens:
+        notes.append(sens)
     notes.append("Average times are only loosely comparable: the strategies ran at the same time with different numbers of parallel jobs, "
                  "so each was slowed by a different amount of shared load.")
     notes.append("Dollar figures use the estimated prices in `patchwright/prices.json`, not official Nebius billing. "
@@ -111,7 +131,8 @@ def main() -> None:
     if a.routed:
         data["routed"] = load(a.routed)
     stats, n_common = compare(data)
-    md = markdown(stats, n_common, {c: len(r) for c, r in data.items()})
+    common = set.intersection(*(set(map(key, rows)) for rows in data.values()))
+    md = markdown(stats, n_common, {c: len(r) for c, r in data.items()}, breakeven(data, common))
     print(md)
     if a.write:
         res = ROOT / "results"

@@ -107,6 +107,8 @@ Routing: Nano rated every benchmark bug easy or medium and refused none, so the 
 
 Runs the harness accepted but the hidden test rejected: Tiered (Super, then Ultra) 1, Ultra only 1.
 
+Cost sensitivity: per fixed bug, tiered uses 42,647 Super + 26,563 Ultra tokens, Ultra-only uses 54,529 Ultra tokens. Tiered is cheaper than Ultra-only only if Ultra costs more than 1.5x Super per token; at equal prices it would cost 27% more.
+
 Average times are only loosely comparable: the strategies ran at the same time with different numbers of parallel jobs, so each was slowed by a different amount of shared load.
 
 Dollar figures use the estimated prices in `patchwright/prices.json`, not official Nebius billing. The agent is not deterministic, so repeat the benchmark before reading small differences as real.

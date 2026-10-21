@@ -23,6 +23,7 @@ MAX_SECONDS = int(os.getenv("RUN_MAX_SECONDS", "900"))  # wall-clock cap per run
 MAX_BAD_CONSEC = 3   # consecutive unparseable replies before giving up on a tier
 MAX_REJECTS = 3      # rejected "finish" attempts before giving up on a tier
 MAX_SAME_ACTION = 4  # identical action repeated this many times means the model is stuck
+MAX_ACTIONS = 3      # actions executed per model reply; each extra action saves a whole model call
 KEEP_FULL = 6        # most recent messages kept verbatim; older ones are clipped to save tokens
 
 REVIEW_PROMPT = """A fix was made for this bug report.
@@ -51,6 +52,8 @@ Reply with exactly ONE JSON object per turn and nothing else. Actions:
 <the full new content of the file, written raw: no JSON escaping, no quotes around it>
 FILE>>>
 (For "write", the JSON line contains only the action and path. The file content goes between <<<FILE and FILE>>> exactly as it should appear on disk.)
+
+To save steps you may put up to 3 actions in one reply, one after another; they run in order and you get every result back together. Batch what does not depend on a result you need to read first, for example: write your new test and run it; or write the fix and run the new test and the suite. If an action fails, the rest of the reply is skipped. Do not batch past something whose output you must see before deciding.
 {"action":"search","query":"<web search; only for unfamiliar library or error behaviour>"}
 {"action":"finish","repro_test_cmd":"<command that runs ONLY your new test, e.g. python -m pytest -q test_bug.py>","suite_cmd":"<command that runs the full suite, e.g. python -m pytest -q>","summary":"<root cause and fix in 2-4 sentences>"}
 
@@ -73,27 +76,47 @@ class Result:
 
 
 FILE_BLOCK = re.compile(r"<<<FILE[ \t]*\r?\n(.*?)\r?\n?[ \t]*FILE>>>", re.S)
+NEXT_ACTION = re.compile(r'\{\s*"action"')
+
+
+def _parse_actions(text: str) -> list[dict]:
+    """Every JSON action in a reply, in order. For `write`, the content comes from the raw <<<FILE ... FILE>>> block
+    that follows it (no escaping, so models cannot break it); inline JSON "content" is still accepted."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    dec = json.JSONDecoder(strict=False)  # tolerate raw newlines inside strings
+    acts: list[dict] = []
+    pos = 0
+    while True:
+        m = text.find("{", pos)
+        if m == -1:
+            break
+        try:
+            obj, end = dec.raw_decode(text[m:])
+        except json.JSONDecodeError:
+            pos = m + 1
+            continue
+        if not (isinstance(obj, dict) and "action" in obj):
+            pos = m + 1
+            continue
+        pos = m + end
+        if obj["action"] == "write" and not obj.get("content"):
+            block = FILE_BLOCK.search(text, pos)
+            nxt = NEXT_ACTION.search(text, pos)
+            if block and (not nxt or block.start() < nxt.start()):
+                obj["content"] = block.group(1).rstrip("\n") + "\n"
+                pos = block.end()
+        acts.append(obj)
+    if not acts and '"write"' in text and '\\"' in text:  # models sometimes double-escape quotes inside JSON strings
+        fixed = text.replace('\\"', '\\"'[1:])
+        if fixed != text:
+            return _parse_actions(fixed)
+    return acts
 
 
 def _parse_action(text: str) -> dict | None:
-    """First JSON action in a reply. For `write`, the content comes from a raw <<<FILE ... FILE>>> block
-    (no escaping, so models cannot break it); inline JSON "content" is still accepted."""
-    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-    dec = json.JSONDecoder(strict=False)  # tolerate raw newlines inside strings
-    for m in re.finditer(r"\{", text):
-        try:
-            obj, end = dec.raw_decode(text[m.start():])
-        except json.JSONDecodeError:
-            continue
-        if isinstance(obj, dict) and "action" in obj:
-            if obj["action"] == "write" and not obj.get("content"):
-                block = FILE_BLOCK.search(text[m.start() + end:])
-                if block:
-                    obj["content"] = block.group(1).rstrip("\n") + "\n"
-            return obj
-    if '"write"' in text and '\\\\"' in text:  # models sometimes double-escape quotes inside JSON strings
-        return _parse_action(text.replace('\\\\"', '\\"')) if text.replace('\\\\"', '\\"') != text else None
-    return None
+    """The first action in a reply (kept for callers and tests that only need one)."""
+    acts = _parse_actions(text)
+    return acts[0] if acts else None
 
 
 def _looks_like_broken_write(text: str) -> bool:
@@ -292,8 +315,8 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 steps += 1
                 reply = llm.chat(tier, _compact(msgs))
                 msgs.append({"role": "assistant", "content": reply})
-                act = _parse_action(reply)
-                if not act:
+                acts = _parse_actions(reply)[:MAX_ACTIONS]
+                if not acts:
                     bad += 1
                     bad_run += 1
                     emit({"type": "bad_reply", "tier": tier, "head": reply[:200]})
@@ -305,8 +328,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     msgs.append({"role": "user", "content": hint})
                     continue
                 bad_run = 0
-                a = act["action"]
-                sig = json.dumps(act, sort_keys=True)[:300]
+                sig = json.dumps(acts, sort_keys=True)[:300]
                 if recent.count(sig) + 1 >= MAX_SAME_ACTION:
                     abort = f"the same action was repeated {MAX_SAME_ACTION} times"
                     break
@@ -316,33 +338,45 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     loop_warn += (f"\n(Only {left} step(s) left. If your fix and your new test pass, call finish NOW "
                                   "instead of polishing; unfinished work counts as a failure.)")
                 recent.append(sig)
-                if a == "run":
-                    code, out = sb.exec(str(act.get("cmd") or "true"))
-                    obs = f"exit={code}\n{out}"
-                elif a == "write":
-                    try:
-                        if not act.get("path") or act.get("content") is None:
-                            raise ValueError("a write needs a path and the file content between <<<FILE and FILE>>> on the lines after the JSON")
-                        sb.write(act["path"], act["content"])
-                        obs = f"wrote {act['path']}"
-                    except Exception as e:  # noqa: BLE001
-                        obs = f"write failed: {e}"
-                elif a == "search":
-                    obs = web_search(act.get("query", ""))
-                elif a == "finish":
-                    res, why = attempt_finish(tier, act)
-                    if res:
-                        return res
-                    obs = why
-                    rejects += 1
-                    if rejects >= MAX_REJECTS:
-                        abort = f"{rejects} rejected finish attempts"
-                        emit({"type": "step", "tier": tier, "action": a, "detail": "", "obs": obs[:1500]})
+                parts = []
+                for k, act in enumerate(acts):
+                    a = act["action"]
+                    stop = False
+                    if a == "run":
+                        code, out = sb.exec(str(act.get("cmd") or "true"))
+                        obs = f"exit={code}\n{out}"
+                        stop = code != 0
+                    elif a == "write":
+                        try:
+                            if not act.get("path") or act.get("content") is None:
+                                raise ValueError("a write needs a path and the file content between <<<FILE and FILE>>> on the lines after the JSON")
+                            sb.write(act["path"], act["content"])
+                            obs = f"wrote {act['path']}"
+                        except Exception as e:  # noqa: BLE001
+                            obs = f"write failed: {e}"
+                            stop = True
+                    elif a == "search":
+                        obs = web_search(act.get("query", ""))
+                    elif a == "finish":
+                        res, why = attempt_finish(tier, act)
+                        if res:
+                            return res
+                        obs = why
+                        rejects += 1
+                        stop = True
+                    else:
+                        obs = f"unknown action {a!r}"
+                        stop = True
+                    emit({"type": "step", "tier": tier, "action": a, "detail": _detail(act), "obs": obs[:1500]})
+                    parts.append(obs if len(acts) == 1 else f"[{k + 1}/{len(acts)} {a}] {obs}")
+                    if stop:
+                        if k + 1 < len(acts):
+                            parts.append(f"(The remaining {len(acts) - k - 1} action(s) in your reply were skipped because of the result above.)")
                         break
-                else:
-                    obs = f"unknown action {a!r}"
-                emit({"type": "step", "tier": tier, "action": a, "detail": _detail(act), "obs": obs[:1500]})
-                msgs.append({"role": "user", "content": obs + loop_warn})
+                if rejects >= MAX_REJECTS:
+                    abort = f"{rejects} rejected finish attempts"
+                    break
+                msgs.append({"role": "user", "content": "\n".join(parts) + loop_warn})
             if abort:
                 emit({"type": "abort", "tier": tier, "reason": abort})
             auto = _auto_finish_act(sb)  # the model may have a working fix but never said "finish"

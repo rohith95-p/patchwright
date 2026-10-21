@@ -245,3 +245,47 @@ def test_parse_triage_variants():
     assert _parse_triage("<think>{\"valid\": false}</think>" + triage_json())["valid"] is True
     bad = _parse_triage("no json")
     assert bad["valid"] and bad["difficulty"] == "medium" and not bad["parsed"]
+
+
+# ---- batching: several actions per reply save whole model calls ----
+def batch(*acts_):
+    out = []
+    for a_ in acts_:
+        out.append(json.dumps({k: v for k, v in a_.items() if k != "content"}) + ("\n<<<FILE\n" + a_["content"] + "FILE>>>" if "content" in a_ else ""))
+    return "\n".join(out)
+
+
+def test_one_reply_with_test_fix_and_finish_solves_in_a_single_model_call(repo):
+    url, task = repo
+    llm = FakeLLM([batch(
+        dict(action="write", path="test_new.py", content="from stats import average\n\ndef test_a():\n    assert average([2, 4, 6]) == 4\n"),
+        dict(action="write", path="stats.py", content="def average(nums):\n    return sum(nums) / len(nums)\n"),
+        dict(action="finish", repro_test_cmd="python -m pytest -q test_new.py", suite_cmd="python -m pytest -q", summary="x"))])
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert res.solved and llm.calls == 1 and res.steps == 1
+
+
+def test_a_failing_action_skips_the_rest_of_the_reply_and_tells_the_model(repo):
+    url, task = repo
+    seen = []
+    llm = FakeLLM([batch(dict(action="run", cmd="exit 3"), dict(action="write", path="should_not_exist.py", content="x = 1\n")),
+                   json.dumps(dict(action="run", cmd="ls"))])
+    orig = llm.chat
+
+    def spy(tier, messages, **kw):
+        seen.append(messages[-1]["content"])
+        return orig(tier, messages, **kw)
+    llm.chat = spy
+    events_of(llm, url, task["issue"], ["super"])
+    assert any("skipped" in m and "exit=3" in m for m in seen), "the model must be told its second action did not run"
+    listing = [m for m in seen if "stats.py" in m]
+    assert listing and not any("should_not_exist.py" in m for m in listing), "the skipped write must not have happened"
+
+
+def test_batch_is_capped_at_max_actions(repo):
+    url, task = repo
+    llm = FakeLLM([batch(*[dict(action="run", cmd=f"echo marker{i}") for i in range(6)])])
+    evs = []
+    agent.run_agent(llm, url, task["issue"], on_event=evs.append, tiers=["super"])
+    ran = [e["detail"] for e in evs if e["type"] == "step" and "marker" in (e.get("detail") or "")]
+    assert ran == [f"echo marker{i}" for i in range(agent.MAX_ACTIONS)]
