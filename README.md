@@ -89,15 +89,11 @@ This is a synthetic set built for fast, repeatable comparison. It is **not SWE-b
 
 ## Results
 
-To be filled in from real Nebius Token Factory runs (`results/` holds the raw files).
+Real runs on Nebius Token Factory (raw files in `results/`, rebuilt with `python -m bench.summary`).
 
-| Strategy | Truly fixed | Avg time per bug | Tokens | Est. cost per fixed bug |
-|---|---|---|---|---|
-| Tiered (Super, then Ultra) | | | | |
-| Super only | | | | |
-| Ultra only | | | | |
-
-Dollar figures use per-token price estimates in `patchwright/prices.json`, not official Nebius billing.
+<!-- RESULTS:START -->
+Not filled in yet.
+<!-- RESULTS:END -->
 
 ## Safety
 

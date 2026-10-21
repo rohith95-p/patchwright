@@ -36,6 +36,7 @@ async function route() {
     else if (page === "r") await pageRun(app, arg);
     else if (page === "bench") await pageBench(app);
     else if (page === "how") pageHow(app);
+    else if (page === "monitor") await pageMonitor(app);
     else if (page === "history") await pageHistory(app);
     else app.innerHTML = `<div class="empty">Page not found.</div>`;
   } catch (e) { app.innerHTML = `<div class="card"><h2>Something went wrong</h2><p>${esc(e.message)}</p></div>`; }
@@ -251,6 +252,31 @@ async function pageBench(app) {
   $("#bstart").onclick = async () => { try { await api("/api/bench/start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ config: $("#bcfg").value, workers: 2 }) }); } catch (e) { toast(e.message); } await poll(); };
   await poll();
   timer = setInterval(async () => { const running = await poll(); if (!running && $("#bstart") && !$("#bstart").disabled) { /* idle */ } }, 3000);
+}
+
+/* ---------- live monitor of background benchmarks ---------- */
+async function pageMonitor(app) {
+  app.innerHTML = `<h1>Benchmarks, live</h1>
+    <p class="lede">What the background benchmark runs are doing right now. Updates every 3 seconds. Results are written as bugs finish; the dollar figures use estimated prices.</p>
+    <div class="kpis" id="mtop"></div><div id="mcards" class="grid sec"></div>`;
+  const draw = async () => {
+    let d; try { d = await api("/api/monitor"); } catch (e) { return; }
+    if (!$("#mtop")) return;
+    $("#mtop").innerHTML = [["Sandboxes running", d.containers], ["Tokens used", fmt.n(d.tokens)], ["Est. cost so far", fmt.usd(d.cost)]]
+      .map(([l, v]) => `<div class="card kpi"><div class="l">${l}</div><div class="v">${v}</div></div>`).join("");
+    const pill = c => c.status === "finished" ? `<span class="pill ok">${c.stopped ? "stopped: cap reached" : "finished"}</span>` : c.status === "running" ? `<span class="pill live"><i class="dot"></i>running</span>` : `<span class="pill">waiting</span>`;
+    $("#mcards").innerHTML = d.cards.map(c => {
+      const pct = Math.round(100 * c.done / c.total);
+      return `<div class="card"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px"><h2 style="margin:0">${esc(c.label)}</h2>${pill(c)}<span class="hint">${c.workers} in parallel</span></div>
+        <div class="bars"><div class="row" style="grid-template-columns:1fr 110px"><div class="track"><div class="fill" style="width:${pct}%;background:var(--brand)"></div></div><div class="val">${c.done}/${c.total}</div></div></div>
+        <div class="meter" style="margin:6px 0 12px"><div><b>${c.fixed}</b><span>truly fixed so far</span></div><div><b>${fmt.n(c.tokens)}</b><span>tokens</span></div><div><b>${fmt.usd(c.cost)}</b><span>est. cost</span></div><div><b>${c.errors}</b><span>crashed</span></div></div>
+        ${c.running_now.length ? `<h3>Working on now</h3><div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">${c.running_now.map(x => `<span class="pill live" title="repeat ${x.rep + 1}"><i class="dot"></i>${esc(x.id)} · ${fmt.s(x.seconds)}</span>`).join("")}</div>` : ""}
+        ${c.recent.length ? `<h3>Latest results</h3><div class="tbl"><table><tr><th>Bug</th><th>Result</th><th>Tier</th><th>Steps</th><th>Time</th></tr>${c.recent.map(r => `<tr><td class="mono">${esc(r.id)}${r.rep ? ` <span class="hint">#${r.rep + 1}</span>` : ""}</td><td>${r.error ? `<span class="pill bad">crashed</span>` : r.fixed ? `<span class="pill ok">fixed</span>` : `<span class="pill bad">not fixed</span>`}</td><td>${esc(r.tier || "–")}</td><td>${r.steps ?? "–"}</td><td>${fmt.s(r.seconds)}</td></tr>`).join("")}</table></div>` : ""}
+        ${c.stopped ? `<div class="banner" style="margin-top:12px">Stopped early: ${esc(c.stopped)}. Partial results kept.</div>` : ""}</div>`;
+    }).join("");
+  };
+  await draw();
+  timer = setInterval(draw, 3000);
 }
 
 /* ---------- history ---------- */

@@ -141,3 +141,38 @@ def test_compact_clips_old_messages_but_keeps_recent_ones():
     assert out[-1]["content"] == msgs[-1]["content"]
     before, after = sum(len(m["content"]) for m in msgs), sum(len(m["content"]) for m in out)
     assert after < before * 0.7, f"expected at least 30% fewer characters, got {after}/{before}"
+
+
+def test_harness_finishes_for_a_model_that_fixed_the_bug_but_never_called_finish(repo):
+    url, task = repo
+    fix = [act(action="write", path="test_new.py", content="from stats import average\n\ndef test_a():\n    assert average([2, 4, 6]) == 4\n"),
+           act(action="write", path="stats.py", content="def average(nums):\n    return sum(nums) / len(nums)\n")]
+    llm = FakeLLM(fix + [act(action="run", cmd=f"echo polishing {i}") for i in range(30)])
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert res.solved, "a verified fix must count even if the model never said finish"
+    assert any(e["type"] == "verify" and e["ok"] and e.get("auto") for e in evs)
+    assert llm.calls == agent.STEPS["super"], "it should have used its steps, then been verified by the harness"
+
+
+def test_auto_finish_cannot_pass_a_wrong_fix(repo):
+    url, task = repo
+    # a test that passes without any fix (does not capture the bug) and no source change: must NOT be accepted
+    llm = FakeLLM([act(action="write", path="test_new.py", content="def test_trivial():\n    assert True\n")] +
+                  [act(action="run", cmd=f"echo {i}") for i in range(30)])
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert not res.solved
+    assert not any(e["type"] == "verify" and e["ok"] for e in evs)
+
+
+def test_model_is_warned_when_only_a_few_steps_are_left(repo):
+    url, task = repo
+    seen = []
+    llm = FakeLLM([act(action="run", cmd=f"echo {i}") for i in range(30)])
+    orig = llm.chat
+
+    def spy(tier, messages, **kw):
+        seen.append(messages[-1]["content"])
+        return orig(tier, messages, **kw)
+    llm.chat = spy
+    events_of(llm, url, task["issue"], ["super"])
+    assert any("call finish NOW" in m for m in seen)

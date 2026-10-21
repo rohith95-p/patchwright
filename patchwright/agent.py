@@ -157,6 +157,18 @@ def _compact(msgs: list[dict]) -> list[dict]:
     return out + msgs[-KEEP_FULL:]
 
 
+def _auto_finish_act(sb: Sandbox) -> dict | None:
+    """If the agent left new test files behind, build the finish action for it so the harness can still check the work.
+    The harness verifies the result itself, so this cannot make a wrong fix pass."""
+    tests = [f for f in sb.new_files()
+             if re.search(r"(^|/)(test_[^/]*|[^/]*_test)\.py$", f) and "test_edge_review_tmp" not in f]
+    if not tests:
+        return None
+    return {"action": "finish", "repro_test_cmd": "python -m pytest -q " + " ".join(tests),
+            "suite_cmd": "python -m pytest -q",
+            "summary": "Fix verified by the harness; the model ran out of steps before calling finish."}
+
+
 def _detail(act: dict) -> str:
     a = act.get("action")
     if a == "run":
@@ -189,7 +201,28 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
         notes = ""
         steps = 0
         bad = 0
-        reviewed = False
+        state = {"reviewed": False}
+
+        def attempt_finish(tier: str, act: dict, auto: bool = False) -> tuple[Result | None, str]:
+            """Run every proof check. Used for the model's own `finish` and for the harness's auto-finish."""
+            ok, why = _verify(sb, act)
+            emit({"type": "verify", "tier": tier, "ok": ok, "auto": auto, "why": why[:1200]})
+            if ok and EDGE_REVIEW and not state["reviewed"]:
+                state["reviewed"] = True
+                rok, rmsg = _edge_review(llm, tier, sb, issue)
+                emit({"type": "review", "tier": tier, "ok": rok, "why": rmsg[:1200]})
+                if not rok:
+                    ok, why = False, ("An independent edge-case review of your fix found a failing case:\n" + rmsg +
+                                      "\nDecide whether your fix is incomplete. If so, fix the source code and finish again. "
+                                      "If the review test itself contradicts the issue, finish again unchanged.")
+            if not ok:
+                return None, why
+            res = Result(True, tier, steps, act.get("summary", ""), sb.diff(), [], time.time() - t0, None, bad)
+            res.hidden_ok = post_check(sb) if post_check else None
+            emit({"type": "done", "solved": True, "tier": tier, "steps": steps, "summary": res.summary, "auto": auto,
+                  "diff": res.diff, "repro_cmd": act.get("repro_test_cmd"), "suite_cmd": act.get("suite_cmd")})
+            return res, ""
+
         for ti, tier in enumerate(tiers):
             if ti > 0:
                 sb.reset()
@@ -200,7 +233,8 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             recent: list[str] = []
             bad_run = rejects = 0
             abort = ""
-            for _ in range(STEPS.get(tier, 14)):
+            n_steps = STEPS.get(tier, 14)
+            for si in range(n_steps):
                 u = llm.usage
                 if u.prompt_tokens + u.completion_tokens > TOKEN_BUDGET:
                     emit({"type": "budget", "tier": tier})
@@ -230,6 +264,10 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     abort = f"the same action was repeated {MAX_SAME_ACTION} times"
                     break
                 loop_warn = "\n(You repeated an action you already tried; change your approach.)" if recent.count(sig) >= 1 else ""
+                left = n_steps - si - 1
+                if left <= 2:
+                    loop_warn += (f"\n(Only {left} step(s) left. If your fix and your new test pass, call finish NOW "
+                                  "instead of polishing; unfinished work counts as a failure.)")
                 recent.append(sig)
                 if a == "run":
                     code, out = sb.exec(str(act.get("cmd") or "true"))
@@ -245,21 +283,8 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 elif a == "search":
                     obs = web_search(act.get("query", ""))
                 elif a == "finish":
-                    ok, why = _verify(sb, act)
-                    emit({"type": "verify", "tier": tier, "ok": ok, "why": why[:1200]})
-                    if ok and EDGE_REVIEW and not reviewed:
-                        reviewed = True
-                        rok, rmsg = _edge_review(llm, tier, sb, issue)
-                        emit({"type": "review", "tier": tier, "ok": rok, "why": rmsg[:1200]})
-                        if not rok:
-                            ok, why = False, ("An independent edge-case review of your fix found a failing case:\n" + rmsg +
-                                              "\nDecide whether your fix is incomplete. If so, fix the source code and finish again. "
-                                              "If the review test itself contradicts the issue, finish again unchanged.")
-                    if ok:
-                        res = Result(True, tier, steps, act.get("summary", ""), sb.diff(), [], time.time() - t0, None, bad)
-                        res.hidden_ok = post_check(sb) if post_check else None
-                        emit({"type": "done", "solved": True, "tier": tier, "steps": steps, "summary": res.summary,
-                              "diff": res.diff, "repro_cmd": act.get("repro_test_cmd"), "suite_cmd": act.get("suite_cmd")})
+                    res, why = attempt_finish(tier, act)
+                    if res:
                         return res
                     obs = why
                     rejects += 1
@@ -273,6 +298,11 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 msgs.append({"role": "user", "content": obs + loop_warn})
             if abort:
                 emit({"type": "abort", "tier": tier, "reason": abort})
+            auto = _auto_finish_act(sb)  # the model may have a working fix but never said "finish"
+            if auto:
+                res, _ = attempt_finish(tier, auto, auto=True)
+                if res:
+                    return res
             tried = "\n".join(m["content"][:300] for m in msgs[-5:] if m["role"] == "user")
             notes += (f"\n\nA previous attempt with tier '{tier}' did not succeed ({abort or 'ran out of steps'}). "
                       f"Its last observations were:\n{tried}\nThe repository has been reset to its original state. "

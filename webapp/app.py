@@ -37,6 +37,7 @@ from patchwright.agent import run_agent
 from patchwright.config import PRICES, PRICES_ARE_ESTIMATES, get_model, provider_name
 from patchwright.llm import LLM
 from patchwright.pr import proof_card
+from webapp.monitor import monitor
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_RUNS = ROOT / "runs" / "web"
@@ -229,6 +230,11 @@ def bench_start(req: BenchRequest) -> dict:
 
     threading.Thread(target=pump, daemon=True).start()
     return {"started": True}
+
+
+@app.get("/api/monitor")
+def monitor_api() -> dict:
+    return monitor()
 
 
 @app.get("/api/bench/status")

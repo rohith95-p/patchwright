@@ -2,11 +2,15 @@
 import shutil
 import subprocess
 import tempfile
+import threading
 import uuid
 from pathlib import Path
 
-IMAGE = "python:3.11-slim"
+BASE_IMAGE = "python:3.11-slim"
+IMAGE = "patchwright-sandbox:py311"  # BASE_IMAGE plus pytest, built once so no run pays a ~40s pip install
+DOCKERFILE = f"FROM {BASE_IMAGE}\nRUN pip install --no-cache-dir pytest\n"
 MAX_OUT = 8000
+_image_lock = threading.Lock()
 
 
 def _run(args: list[str], timeout: int) -> tuple[int, str]:
@@ -21,8 +25,24 @@ def _clip(s: str) -> str:
     return s if len(s) <= MAX_OUT else s[: MAX_OUT // 2] + "\n...[clipped]...\n" + s[-MAX_OUT // 2 :]
 
 
+def ensure_image() -> str:
+    """Build the sandbox image the first time it is needed. Falls back to the plain base image if the build fails."""
+    with _image_lock:
+        if _run(["docker", "image", "inspect", IMAGE], 30)[0] == 0:
+            return IMAGE
+        try:
+            p = subprocess.run(["docker", "build", "-q", "-t", IMAGE, "-"], input=DOCKERFILE, capture_output=True,
+                               text=True, encoding="utf-8", errors="replace", timeout=600)
+            if p.returncode == 0:
+                return IMAGE
+        except subprocess.TimeoutExpired:
+            pass
+        return BASE_IMAGE
+
+
 class Sandbox:
     def __init__(self, repo_url: str, ref: str | None = None) -> None:
+        self.image = ensure_image()
         self.name = f"patchwright-{uuid.uuid4().hex[:8]}"
         self.host_dir = Path(tempfile.mkdtemp(prefix="pw-"))
         code, out = _run(["git", "clone", "--quiet", repo_url, str(self.host_dir / "repo")], 300)
@@ -32,23 +52,28 @@ class Sandbox:
             _run(["git", "-C", str(self.host_dir / "repo"), "checkout", "--quiet", ref], 60)
         code, out = _run(
             ["docker", "run", "-d", "--name", self.name, "--memory", "2g", "--cpus", "2",
-             "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", f"{self.host_dir / 'repo'}:/work", "-w", "/work", IMAGE, "sleep", "infinity"],
+             "-e", "PYTHONDONTWRITEBYTECODE=1", "-v", f"{self.host_dir / 'repo'}:/work", "-w", "/work", self.image, "sleep", "infinity"],
             120,
         )
         if code:
             raise RuntimeError(f"docker run failed: {out}")
 
     def setup(self) -> None:
-        self.exec("pip install -q pytest 2>&1 | tail -1", timeout=240)
+        """pytest is already in the sandbox image; install it only if we had to fall back to the base image."""
+        if self.exec("python -m pytest --version", timeout=60)[0] != 0:
+            self.exec("pip install -q pytest 2>&1 | tail -1", timeout=240)
 
     def prove_fails_without_fix(self, repro_cmd: str) -> tuple[bool, str]:
         """Revert changes to tracked source files (keeping new test files), run the repro test, restore the fix."""
         repo = str(self.host_dir / "repo")
-        names = [n for n in _run(["git", "-C", repo, "diff", "--name-only"], 60)[1].splitlines()
-                 if n and not n.startswith("warning")]
+        # filter M = tracked files that existed at HEAD and were modified. New files (even ones git was told to track
+        # with add -N when the diff was shown) are NOT in this list, so the agent's own new tests are never mistaken
+        # for edited existing tests.
+        names = self._changed(repo, "M")
+        gone = self._changed(repo, "D")
         if not names:
             return False, "No change to existing source files was found; a fix must modify the code."
-        edited_tests = [n for n in names if "test" in Path(n).name.lower()]
+        edited_tests = [n for n in names + gone if "test" in Path(n).name.lower()]
         if edited_tests:
             return False, f"You modified existing test files ({', '.join(edited_tests)}). Revert them and put new tests in a NEW file."
         code, patch = _run(["git", "-C", repo, "diff", "--binary", "--", *names], 60)
@@ -67,9 +92,21 @@ class Sandbox:
             return False, f"Repro test passes even WITHOUT your fix, so it does not reproduce the bug:\n{out}"
         return True, out
 
+    @staticmethod
+    def _changed(repo: str, kind: str) -> list[str]:
+        out = _run(["git", "-C", repo, "diff", "--name-only", f"--diff-filter={kind}"], 60)[1]
+        return [n for n in out.splitlines() if n and not n.startswith("warning")]
+
+    def new_files(self) -> list[str]:
+        """Files the agent created (untracked, or added with add -N when a diff was shown)."""
+        repo = str(self.host_dir / "repo")
+        untracked = _run(["git", "-C", repo, "ls-files", "--others", "--exclude-standard"], 60)[1].splitlines()
+        return sorted({n for n in untracked + self._changed(repo, "A") if n and not n.startswith("warning")})
+
     def reset(self) -> None:
         """Restore the repo to its original commit (used when escalating to a stronger model)."""
         repo = str(self.host_dir / "repo")
+        _run(["git", "-C", repo, "reset", "-q"], 60)  # drop add -N entries so clean can remove those new files
         _run(["git", "-C", repo, "checkout", "--", "."], 60)
         _run(["git", "-C", repo, "clean", "-fdq"], 60)
 

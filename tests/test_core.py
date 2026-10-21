@@ -153,3 +153,39 @@ def test_broken_write_is_detected_so_the_hint_can_be_specific():
     from patchwright.agent import _looks_like_broken_write
     assert _looks_like_broken_write('{"action": "write", "path": "x", "content": "oops')
     assert not _looks_like_broken_write('{"action": "run", "cmd": "ls"}')
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_own_new_test_file_is_never_mistaken_for_an_edited_existing_test(toy_repo):
+    """Regression: showing the diff marks new files as tracked; editing the agent's own test afterwards was rejected."""
+    from patchwright.sandbox import Sandbox
+    with Sandbox(toy_repo) as sb:
+        sb.setup()
+        sb.write("test_new.py", "from calc import add\n\ndef test_a():\n    assert add(2, 3) == 5\n")
+        sb.write("calc.py", "def add(a, b):\n    return a + b\n")
+        assert "test_new.py" in sb.diff()                  # this is what the edge-case review does
+        sb.write("test_new.py", "from calc import add\n\ndef test_a():\n    assert add(2, 3) == 5\n    assert add(0, 0) == 0\n")
+        ok, why = sb.prove_fails_without_fix("python -m pytest -q test_new.py")
+        assert ok, why
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_deleting_an_existing_test_is_still_rejected(toy_repo):
+    from patchwright.sandbox import Sandbox
+    with Sandbox(toy_repo) as sb:
+        sb.setup()
+        sb.write("calc.py", "def add(a, b):\n    return a + b\n")
+        sb.exec("rm test_calc.py")
+        ok, why = sb.prove_fails_without_fix("true")
+        assert not ok and "existing test" in why
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_reset_also_removes_files_that_a_shown_diff_marked_as_tracked(toy_repo):
+    from patchwright.sandbox import Sandbox
+    with Sandbox(toy_repo) as sb:
+        sb.write("test_new.py", "def test_x():\n    assert True\n")
+        sb.diff()
+        assert "test_new.py" in sb.new_files()
+        sb.reset()
+        assert sb.new_files() == [] and "No such file" in sb.exec("cat test_new.py")[1]
