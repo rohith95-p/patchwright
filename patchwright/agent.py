@@ -7,10 +7,12 @@ was edited.
 import json
 import os
 import re
+import shlex
 import time
 from dataclasses import dataclass, field
 
 from .config import get_model
+from .context import relevant_excerpts
 from .llm import LLM
 from .sandbox import Sandbox
 from .tools import format_results, research_query, search
@@ -23,6 +25,7 @@ MAX_SECONDS = int(os.getenv("RUN_MAX_SECONDS", "900"))  # wall-clock cap per run
 MAX_BAD_CONSEC = 3   # consecutive unparseable replies before giving up on a tier
 MAX_REJECTS = 3      # rejected "finish" attempts before giving up on a tier
 MAX_SAME_ACTION = 4  # identical action repeated this many times means the model is stuck
+TOKEN_BUDGET_REMOTE = int(os.getenv("RUN_TOKEN_BUDGET_REMOTE", "300000"))  # real repositories have bigger files
 MAX_RESEARCH = int(os.getenv("TAVILY_MAX_PER_RUN", "4"))  # Tavily lookups per run (errors, related discussion, model requests)
 REMOTE_RESEARCH = os.getenv("TAVILY_CONTEXT", "1") == "1"  # look up related discussion for real remote repositories
 MAX_ACTIONS = 3      # actions executed per model reply; each extra action saves a whole model call
@@ -77,7 +80,8 @@ class Result:
     bad_replies: int = 0
 
 
-FILE_BLOCK = re.compile(r"<<<FILE[ \t]*\r?\n(.*?)\r?\n?[ \t]*FILE>>>", re.S)
+FILE_BLOCK = re.compile(
+    r"<<<FILE[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*FILE\s*>{1,3}\s*\}?|(?=\r?\n\s*\{\s*\"action\")|\Z)", re.S)
 NEXT_ACTION = re.compile(r'\{\s*"action"')
 
 
@@ -107,6 +111,8 @@ def _parse_actions(text: str) -> list[dict]:
             if block and (not nxt or block.start() < nxt.start()):
                 obj["content"] = block.group(1).rstrip("\n") + "\n"
                 pos = block.end()
+        if obj["action"] in ("read", "cat", "open", "view") and obj.get("path"):
+            obj = {"action": "run", "cmd": "cat -- " + shlex.quote(str(obj["path"]))}
         acts.append(obj)
     if not acts and '"write"' in text and '\\"' in text:  # models sometimes double-escape quotes inside JSON strings
         fixed = text.replace('\\"', '\\"'[1:])
@@ -291,6 +297,9 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             ctx = research(f"{slug} {issue[:220]}", "related discussion")
             if ctx:
                 hint += "\n\nPossibly related web results (Tavily; may be about a different problem):\n" + ctx[:1500]
+        found = relevant_excerpts(sb.host_dir / "repo", issue)
+        excerpts = ("Code most relevant to the issue (found by searching the repository for the names it mentions; "
+                    "read these before exploring):\n" + found + "\n\n") if found else ""
         notes = ""
         steps = 0
         bad = 0
@@ -319,7 +328,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             if ti > 0:
                 sb.reset()
             emit({"type": "tier_start", "tier": tier, "model": get_model(tier)})
-            first = (f"Issue:\n{issue}\n\nRepository snapshot:\n{snapshot}\n\n"
+            first = (f"Issue:\n{issue}\n\nRepository snapshot:\n{snapshot}\n\n{excerpts}"
                      f"Triage hint from a fast model (may be wrong):\n{hint}{notes}")
             msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": first}]
             recent: list[str] = []
@@ -328,12 +337,12 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             n_steps = STEPS.get(tier, 14)
             for si in range(n_steps):
                 u = llm.usage
-                if u.prompt_tokens + u.completion_tokens > TOKEN_BUDGET:
+                if u.prompt_tokens + u.completion_tokens > (TOKEN_BUDGET_REMOTE if repo_url.startswith("http") else TOKEN_BUDGET):
                     emit({"type": "budget", "tier": tier})
-                    return Result(False, tier, steps, "stopped: token budget reached", sb.diff(), [], time.time() - t0, None, bad)
+                    return Result(False, tier, steps, "stopped: token budget reached", sb.diff(), list(sources), time.time() - t0, None, bad)
                 if time.time() - t0 > MAX_SECONDS:
                     emit({"type": "budget", "tier": tier, "reason": "time limit"})
-                    return Result(False, tier, steps, "stopped: time limit reached", sb.diff(), [], time.time() - t0, None, bad)
+                    return Result(False, tier, steps, "stopped: time limit reached", sb.diff(), list(sources), time.time() - t0, None, bad)
                 steps += 1
                 reply = llm.chat(tier, _compact(msgs))
                 msgs.append({"role": "assistant", "content": reply})
@@ -415,6 +424,6 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                       "Take a fresh, careful look at the root cause.")
             if ti + 1 < len(tiers):
                 emit({"type": "escalate", "from": tier, "to": tiers[ti + 1]})
-        res = Result(False, tiers[-1], steps, "unsolved", sb.diff(), [], time.time() - t0, None, bad)
+        res = Result(False, tiers[-1], steps, "unsolved", sb.diff(), list(sources), time.time() - t0, None, bad)
         emit({"type": "done", "solved": False, "tier": tiers[-1], "steps": steps, "summary": "unsolved", "diff": res.diff})
         return res

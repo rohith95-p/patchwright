@@ -361,3 +361,12 @@ def test_research_budget_per_run_is_capped(repo, monkeypatch):
     llm = FakeLLM([act(action="run", cmd=f"echo \"ModuleNotFoundError: No module named 'm{i}'\"") for i in range(6)])
     events_of(llm, url, task["issue"], ["super"])
     assert len(calls) == 2
+
+
+def test_tavily_sources_are_kept_on_unsolved_runs_too(repo, monkeypatch):
+    url, task = repo
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "search", fake_search([]))
+    llm = FakeLLM([act(action="search", query="python average of a list")] + [act(action="run", cmd=f"echo {i}") for i in range(30)])
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert not res.solved and any(s["url"] == "https://pyyaml.org/" for s in res.evidence)

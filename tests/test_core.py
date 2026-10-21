@@ -259,3 +259,23 @@ def test_real_projects_are_installed_so_their_tests_can_import_them(tmp_path):
         sb.setup()
         assert sb.exec("python -c 'import mylib; print(mylib.VALUE)'")[1].strip() == "42"
         assert sb.diff().strip() == "", "installing the project must not pollute the diff"
+
+
+# ---- real-world lessons: models mistype the closing marker and invent actions ----
+@pytest.mark.parametrize("end", ["FILE>>>", "FILE>>}", "FILE>>", "FILE >>>", ""])
+def test_file_block_survives_a_mistyped_or_missing_closing_marker(end):
+    from patchwright.agent import _parse_actions
+    acts = _parse_actions('{"action":"write","path":"t.py"}\n<<<FILE\nx = 1\n' + end)
+    assert acts[0]["content"] == "x = 1\n"
+
+
+def test_missing_closing_marker_does_not_swallow_the_next_action():
+    from patchwright.agent import _parse_actions
+    acts = _parse_actions('{"action":"write","path":"a.py"}\n<<<FILE\nx = 1\n{"action":"run","cmd":"pytest"}')
+    assert [a["action"] for a in acts] == ["write", "run"] and acts[0]["content"] == "x = 1\n"
+
+
+def test_invented_read_action_becomes_a_safe_cat():
+    from patchwright.agent import _parse_actions
+    assert _parse_actions('{"action":"read","path":"src/a b.py"}') == [{"action": "run", "cmd": "cat -- 'src/a b.py'"}]
+    assert _parse_actions('{"action":"read","path":"x; rm -rf /"}')[0]["cmd"] == "cat -- 'x; rm -rf /'", "the path must be quoted"
