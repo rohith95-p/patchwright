@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 
 from .config import get_model
 from .context import own_modules, relevant_excerpts
+from .gates import run_gates
 from .llm import LLM
 from .sandbox import Sandbox
 from .tools import format_results, research_query, search
@@ -362,7 +363,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 return res
             tiers = ["ultra"] if info["difficulty"] == "hard" else ["super", "ultra"]
             emit({"type": "route", "valid": True, "difficulty": info["difficulty"], "tiers": tiers, "why": info["reason"]})
-        state = {"reviewed": False}
+        state = {"reviewed": False, "gated": False}
         sources: list[dict] = []
         asked: set[str] = set()
 
@@ -402,6 +403,21 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     ok, why = False, ("An independent edge-case review of your fix found a failing case:\n" + rmsg +
                                       "\nDecide whether your fix is incomplete. If so, fix the source code and finish again. "
                                       "If the review test itself contradicts the issue, finish again unchanged.")
+            if ok:  # the project's own formatters/linters/type checkers, on the lines this patch touched
+                try:
+                    gok, gmsg, gtools = run_gates(sb)
+                except Exception as e:  # noqa: BLE001  a broken gate must never sink a verified fix
+                    gok, gmsg, gtools = True, "", []
+                    emit({"type": "gates", "ok": True, "tools": [], "why": f"skipped: {e}"[:300]})
+                if gtools:
+                    emit({"type": "gates", "ok": gok, "tools": gtools, "why": gmsg[:1200]})
+                    code, out = sb.exec(act.get("suite_cmd", ""), timeout=600)
+                    if code != 0:
+                        ok, why = False, "Existing suite fails after auto-formatting:\n" + out
+                    elif not gok and not state.get("gated"):
+                        state["gated"] = True
+                        ok, why = False, ("The project's own checks (CI would run them) flag lines your patch added:\n" + gmsg +
+                                          "\nFix these in the source, then finish again.")
             if not ok:
                 return None, why
             patch_text = sb.diff()

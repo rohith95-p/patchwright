@@ -214,3 +214,6 @@ code{background:var(--code);padding:1px 6px;border-radius:6px;font-size:.92em}
   .timeline li{gap:10px}
 }
 html,body{max-width:100%;overflow-x:hidden}
+
+.replay{display:flex;gap:14px;align-items:center;flex-wrap:wrap;margin-bottom:12px;padding:12px 16px}
+.replay input[type=range]{flex:1;min-width:180px;accent-color:var(--brand)}

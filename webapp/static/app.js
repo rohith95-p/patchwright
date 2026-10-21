@@ -28,14 +28,16 @@ function toast(msg) { const t = document.createElement("div"); t.className = "to
 async function route() {
   if (stream) { stream.close(); stream = null; }
   clearInterval(timer);
-  const [_, page, arg] = location.hash.split("/");
+  const [_, page, argRaw] = location.hash.split("/");
+  const [arg, query] = (argRaw || "").split("?");
+  const upto = new URLSearchParams(query || "").get("upto");
   const active = !page ? "home" : page === "r" ? "fix" : page === "bench" ? "results" : page;
   document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", a.dataset.nav === active));
   const app = $("#app");
   try {
     if (!page || page === "") await pageHome(app);
     else if (page === "fix") await pageRun(app);
-    else if (page === "r") await pageRun(app, arg);
+    else if (page === "r") await pageRun(app, arg, upto);
     else if (page === "results" || page === "bench") await pageResults(app);
     else if (page === "how") pageHow(app);
     else if (page === "monitor") await pageMonitor(app);
@@ -58,7 +60,7 @@ async function boot() {
 /* ---------- run page ---------- */
 let form = { tab: "example", example: null, mode: "tiered" };
 
-async function pageRun(app, runId) {
+async function pageRun(app, runId, upto) {
   const dots = n => `<span class="diff-dots">${[1, 2, 3].map(i => `<i class="${i <= n ? "f" : ""}"></i>`).join("")}</span>`;
   app.innerHTML = `
     <h1>Fix a bug</h1>
@@ -103,19 +105,34 @@ async function pageRun(app, runId) {
     catch (e) { toast(e.message); $("#go").disabled = false; }
   };
   if (!runId) { $("#console").innerHTML = idleConsole(); return; }
-  await watchRun(runId);
+  await watchRun(runId, upto);
 }
 
 function idleConsole() {
   return `<div class="card"><h2>Live console</h2><div class="empty">Pick a bug and press <b>Fix this bug</b>.<br>You will watch the agent work here: each command, each model hand-off, and the final proof.</div></div>`;
 }
 
-async function watchRun(id) {
+async function watchRun(id, upto) {
   const box = $("#console");
   box.innerHTML = `<div class="card"><div class="empty">Loading run…</div></div>`;
   const run = await api("/api/runs/" + id);
   let events = [...run.events], result = run.result || null, status = run.status;
+  const total = run.events.length, finished = !(status === "queued" || status === "running");
   const render = () => { box.innerHTML = consoleHTML(run, events, result, status); wireConsole(box); const f = $("#feed"); if (f && status === "running") f.scrollTop = f.scrollHeight; };
+  if (finished) {
+    // A finished run can be replayed: the slider shows the console as it was after the first N events.
+    let cut = upto != null ? Math.max(1, Math.min(+upto || total, total)) : total;
+    const draw = () => {
+      const partial = cut < total;
+      box.innerHTML = `<div class="card flat replay"><label for="replay"><b>Replay</b> this run: event <span id="rp-n">${cut}</span> of ${total}</label>
+        <input type="range" id="replay" min="1" max="${total}" value="${cut}" aria-label="Replay position"></div>` +
+        consoleHTML(partial ? { ...run, started: null } : run, run.events.slice(0, cut), partial ? null : result, partial ? "running" : status);
+      wireConsole(box);
+      $("#replay").oninput = e => { cut = +e.target.value; draw(); $("#replay").focus(); };
+    };
+    draw();
+    return;
+  }
   render();
   if (status === "queued" || status === "running") {
     stream = new EventSource(`/api/runs/${id}/stream`);

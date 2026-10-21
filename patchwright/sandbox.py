@@ -8,8 +8,9 @@ import uuid
 from pathlib import Path
 
 BASE_IMAGE = "python:3.11-slim"
-IMAGE = "patchwright-sandbox:py311"  # BASE_IMAGE plus pytest, built once so no run pays a ~40s pip install
-DOCKERFILE = f"FROM {BASE_IMAGE}\nRUN pip install --no-cache-dir pytest\n"
+IMAGE = "patchwright-sandbox:py311-2"  # BASE_IMAGE plus pytest, built once so no run pays a ~40s pip install
+DOCKERFILE = (f"FROM {BASE_IMAGE}\nRUN apt-get update -qq && apt-get install -y -qq --no-install-recommends libatomic1 && rm -rf /var/lib/apt/lists/*\n"
+              "RUN pip install --no-cache-dir pytest\n")
 MAX_OUT = 6000
 _image_lock = threading.Lock()
 
@@ -197,6 +198,20 @@ class Sandbox:
             if not (is_test and not has_tests_dir):
                 out.append(f)
         return out
+
+    def changed_py_files(self) -> list[str]:
+        """Python files the delivered patch changes or adds (scratch files excluded)."""
+        repo = str(self.host_dir / "repo")
+        _run(["git", "-C", repo, "add", "-N", "."], 60)
+        names = set(self._changed(repo, "M")) | set(self._changed(repo, "A"))
+        return sorted(n for n in names if n.endswith(".py") and n not in set(self.scratch_files()))
+
+    def diff_zero_context(self) -> str:
+        """The delivered patch with no context lines, to know exactly which lines changed."""
+        repo = str(self.host_dir / "repo")
+        _run(["git", "-C", repo, "add", "-N", "."], 60)
+        skip = [f":(exclude){f}" for f in self.scratch_files()]
+        return _run(["git", "-C", repo, "diff", "-U0", "--", ".", *skip], 60)[1]
 
     def diff(self) -> str:
         """The patch to deliver: changes to existing files plus the agent's new tests, without its scratch files."""
