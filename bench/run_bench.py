@@ -51,12 +51,27 @@ def run_task(task: dict, config: str, root: Path, rep: int = 0) -> dict:
         return "failed" not in out and "error" not in out.lower() and "passed" in out
 
     row = {"id": task["id"], "difficulty": task["difficulty"], "config": config, "rep": rep}
+    trace: list[dict] = []
+
+    def keep(e: dict) -> None:
+        """Compact per-event trace so a failed run can be diagnosed afterwards without re-running it."""
+        if e["type"] in ("start", "end"):
+            return
+        t = {"t": e.get("t"), "type": e["type"], "tier": e.get("tier"), "tok": e.get("usage", {}).get("tokens")}
+        for k, n in (("action", 20), ("detail", 90), ("why", 220), ("reason", 120), ("obs", 110)):
+            if e.get(k):
+                t[k] = str(e[k])[:n]
+        if "ok" in e:
+            t["ok"] = e["ok"]
+        trace.append(t)
+
     try:
-        res = run_agent(llm, repo, task["issue"], on_event=lambda e: None, tiers=CONFIGS[config], post_check=hidden_check)
+        res = run_agent(llm, repo, task["issue"], on_event=keep, tiers=CONFIGS[config], post_check=hidden_check)
         row.update(solved=res.solved, hidden_ok=bool(res.hidden_ok), tier=res.tier_reached, steps=res.steps,
                    seconds=round(res.seconds, 1), diff=res.diff[:1500], summary=res.summary)
     except Exception as e:  # noqa: BLE001
         row.update(solved=False, hidden_ok=False, error=f"{type(e).__name__}: {e}"[:300])
+    row["trace"] = trace
     u = llm.usage
     row.update(calls=u.calls, prompt_tokens=u.prompt_tokens, completion_tokens=u.completion_tokens,
                cost_usd=round(u.cost_usd, 6), by_tier=u.by_tier)
