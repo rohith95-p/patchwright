@@ -1,0 +1,36 @@
+commit bcf9e8176ebe16da58751fce971c98ffe045ede1
+Author: Rodrigo-Palma <email.rodrigopalma@gmail.com>
+Date:   Fri Sep 25 06:00:22 2026 -0300
+
+    Fix #423: Detect an empty RRCache before calling choice.
+    
+    RRCache.popitem() relied on the choice function raising IndexError on an
+    empty sequence, which is what the default random.choice does. Any other
+    valid choice function raised its own exception instead of KeyError, even
+    though the documented contract only requires choice to handle non-empty
+    sequences. The other cache classes each detect emptiness on their own
+    structure first.
+
+diff --git a/tests/test_rr.py b/tests/test_rr.py
+index 43917d7..76d509c 100644
+--- a/tests/test_rr.py
++++ b/tests/test_rr.py
+@@ -86,3 +86,18 @@ class RRCacheTest(unittest.TestCase, CacheTestMixin):
+     def test_rr_default_choice(self):
+         cache = RRCache[int, int](maxsize=2)
+         self.assertIs(cache.choice, random.choice)
++
++    def test_rr_popitem_empty_custom_choice(self):
++        # a custom `choice` function only has to handle non-empty
++        # sequences, so an empty cache has to be detected beforehand
++        for choice in (min, max, lambda seq: next(iter(seq))):
++            cache = RRCache[int, int](maxsize=2, choice=choice)
++
++            with self.assertRaises(KeyError):
++                cache.popitem()
++
++            cache[1] = 1
++            self.assertEqual((1, 1), cache.popitem())
++
++            with self.assertRaises(KeyError):
++                cache.popitem()

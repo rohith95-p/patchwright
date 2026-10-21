@@ -242,3 +242,20 @@ def test_format_results_and_empty():
     from patchwright.tools import format_results
     assert format_results([]) == "[no results]"
     assert "http://x" in format_results([{"title": "t", "url": "http://x", "content": "c"}])
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_real_projects_are_installed_so_their_tests_can_import_them(tmp_path):
+    from patchwright.sandbox import Sandbox
+    d = tmp_path / "proj"
+    (d / "src" / "mylib").mkdir(parents=True)
+    (d / "src" / "mylib" / "__init__.py").write_text("VALUE = 42\n")
+    (d / "pyproject.toml").write_text('[build-system]\nrequires = ["setuptools>=61"]\nbuild-backend = "setuptools.build_meta"\n'
+                                      '[project]\nname = "mylib"\nversion = "0.1"\n[tool.setuptools.packages.find]\nwhere = ["src"]\n')
+    (d / ".gitignore").write_text("*.egg-info/\n__pycache__/\n")
+    for c in (["git", "init", "-q"], ["git", "add", "."], ["git", "-c", "user.email=a@b", "-c", "user.name=t", "commit", "-qm", "i"]):
+        subprocess.run(c, cwd=d, check=True, capture_output=True)
+    with Sandbox(str(d)) as sb:
+        sb.setup()
+        assert sb.exec("python -c 'import mylib; print(mylib.VALUE)'")[1].strip() == "42"
+        assert sb.diff().strip() == "", "installing the project must not pollute the diff"

@@ -62,6 +62,9 @@ class Sandbox:
         """pytest is already in the sandbox image; install it only if we had to fall back to the base image."""
         if self.exec("python -m pytest --version", timeout=60)[0] != 0:
             self.exec("pip install -q pytest 2>&1 | tail -1", timeout=240)
+        # A real project must be importable for its tests to run: install it in editable mode, best effort.
+        if self.exec("test -f pyproject.toml -o -f setup.py", timeout=20)[0] == 0:
+            self.exec("pip install -q -e . 2>&1 | tail -2", timeout=300)
 
     def prove_fails_without_fix(self, repro_cmd: str) -> tuple[bool, str]:
         """Revert changes to tracked source files (keeping new test files), run the repro test, restore the fix."""

@@ -1,0 +1,87 @@
+RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError
+
+Tested with `cachetools` 7.2.0 (current release).
+
+**Describe the bug**
+
+`RRCache.popitem()` on an empty cache only raises `KeyError` when the `choice`
+function happens to raise `IndexError`, which is what the default
+`random.choice` does. With any other valid choice function, the caller gets
+whatever exception that function raises for an empty sequence.
+
+This is the documented contract for `choice` (docs/index.rst):
+
+> The optional argument `choice` may specify an alternative function that
+> returns an arbitrary element from a non-empty sequence.
+
+So a choice function only has to handle non-empty sequences, but `popitem()`
+calls it with an empty list and relies on the exception type it produces.
+
+The other cache classes each detect emptiness on their own structure before
+picking a victim: `FIFOCache`, `LRUCache`, `TTLCache` and `TLRUCache` use
+`next(iter(...))` with `except StopIteration`, and `LFUCache` checks
+`if curr is root` explicitly.
+
+**Expected result**
+
+`popitem()` on an empty `RRCache` raises `KeyError("RRCache is empty")`,
+like every other cache class, whatever `choice` is.
+
+**Actual result**
+
+```
+FIFOCache                    -> KeyError: 'FIFOCache is empty'
+LRUCache                     -> KeyError: 'LRUCache is empty'
+LFUCache                     -> KeyError: 'LFUCache is empty'
+TTLCache                     -> KeyError: 'TTLCache is empty'
+RRCache(random.choice)       -> KeyError: 'RRCache is empty'
+RRCache(choice=min)          -> ValueError: min() iterable argument is empty
+RRCache(choice=max)          -> ValueError: max() iterable argument is empty
+RRCache(next(iter))          -> StopIteration:
+```
+
+`choice=min` is not a contrived example: it is the alternative choice function
+used by `tests/test_rr.py` itself, in `test_rr_getsizeof`, `test_rr_setitem`
+and others.
+
+The `StopIteration` variant is the most unpleasant one, because inside a
+generator PEP 479 turns it into a `RuntimeError` far from its origin.
+
+**Reproduction steps**
+
+```python
+import cachetools
+
+cache = cachetools.RRCache(maxsize=2, choice=min)
+cache.popitem()
+# ValueError: min() iterable argument is empty
+# expected: KeyError: 'RRCache is empty'
+```
+
+The generic drain idiom is the realistic way to hit it:
+
+```python
+import cachetools
+
+cache = cachetools.RRCache(maxsize=4, choice=min)
+cache[1] = 1
+cache[2] = 2
+
+while True:
+    try:
+        key, value = cache.popitem()
+    except KeyError:
+        break
+    print("popped", key, value)
+# popped (1, 1)
+# popped (2, 2)
+# ValueError: min() iterable argument is empty
+```
+
+**Note**
+
+`popitem()` already contains the intended behaviour:
+`raise KeyError("%s is empty" % type(self).__name__) from None`. That branch is
+just unreachable unless `choice` raises `IndexError`. I have a fix and a
+regression test ready and will open a pull request against `develop` linking
+this issue.
