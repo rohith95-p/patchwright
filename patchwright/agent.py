@@ -717,7 +717,8 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     return res
             tried = "\n".join((m.get("content") or "")[:300] for m in msgs[-5:] if m["role"] in ("user", "tool"))
             notes += (f"\n\nA previous attempt with tier '{tier}' did not succeed ({abort or 'ran out of steps'}). "
-                      f"Its last observations were:\n{tried}\nThe repository has been reset to its original state. "
+                      f"Its last observations were:\n{tried}\nThe repository has been reset to its original state: NONE of that attempt's changes exist "
+                      "any more, so you must write a new failing test and change the source again; calling finish without editing the source is rejected. "
                       "Take a fresh, careful look at the root cause.")
             if ti + 1 < len(tiers):
                 emit({"type": "escalate", "from": tier, "to": tiers[ti + 1]})

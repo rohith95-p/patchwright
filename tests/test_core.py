@@ -447,3 +447,16 @@ def test_edit_fields_never_guess_a_deletion():
     assert _parse_actions(json.dumps({"action": "edit", "path": "a.py", "old": "a"}))[0]["edits"] == []
     assert _parse_actions(json.dumps({"action": "edit", "path": "a.py", "new": "b"}))[0]["edits"] == []
     assert _parse_actions(json.dumps({"action": "edit", "path": "a.py", "old": "a", "new": ""}))[0]["edits"] == [("a", "")]
+
+
+def test_invented_action_names_are_mapped_to_real_actions():
+    from patchwright.agent import _parse_actions
+    assert _parse_actions('{"action":"read","file":"a/b.py","start":3,"end":9}') == [{"action": "run", "cmd": "sed -n '3,9p' -- a/b.py"}]
+    assert _parse_actions('{"action":"bash","command":"ls"}') == [{"action": "run", "cmd": "ls"}]
+    assert _parse_actions('{"action":"str_replace","path":"a.py","old_str":"x","new_str":"y"}')[0]["edits"] == [("x", "y")]
+
+
+def test_baseline_failures_are_parsed_from_pytest_output():
+    from patchwright.agent import _failing_ids
+    out = "FAILED tests/test_a.py::test_x - assert 1 == 2\nERROR tests/test_b.py - ImportError\n3 passed"
+    assert _failing_ids(out) == {"tests/test_a.py::test_x", "tests/test_b.py"}

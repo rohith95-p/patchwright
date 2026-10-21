@@ -62,3 +62,18 @@ def test_no_names_or_no_matches_gives_nothing(tmp_path):
 def test_excerpt_size_is_bounded(tmp_path):
     (tmp_path / "big.py").write_text("class RRCache:\n    def popitem(self):\n" + "        x = 1\n" * 500)
     assert len(relevant_excerpts(tmp_path, ISSUE, max_chars=800)) <= 900
+
+
+def test_plain_lowercase_names_in_the_issue_find_the_function(tmp_path):
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "timeutils.py").write_text(
+        "def daterange(start, stop, step=1):\n    now = start\n    while now < stop:\n        yield now\n        now += step\n\n\n"
+        "def other(x):\n    return x\n", encoding="utf-8")
+    out = relevant_excerpts(tmp_path, "boltons.timeutils when start with 12 month, daterange gives a wrong result")
+    assert "def daterange" in out
+
+
+def test_common_words_do_not_match_every_function(tmp_path):
+    body = "".join(f"def build_format_{i}(x):\n    return x\n\n\n" for i in range(8))
+    (tmp_path / "m.py").write_text(body, encoding="utf-8")
+    assert relevant_excerpts(tmp_path, "the format is wrong somewhere") == ""

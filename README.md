@@ -146,9 +146,29 @@ Each has visible tests that **pass on the buggy code** (so they do not reveal th
 
 This is a synthetic set built for fast, repeatable comparison. It is **not SWE-bench**; do not read the results as SWE-bench scores. Model output varies from run to run, so the benchmark supports `--repeats` and reports averages.
 
+## Patchwright-RW: real issues from real libraries, and what it taught us
+
+The toy benchmark is self-contained, so we also built **Patchwright-RW** (`cases/`, `bench/rw_bench.py`): closed issues from `boltons`, `python-tabulate` and `toolz`, each judged by the project's own upstream test, which the agent never sees. The agent gets a fresh one-commit copy of the repository at the parent of the fixing commit, so the fix is not in its history. We checked every case (`python -m bench.rw_validate`, no model calls): the upstream test must fail on the base commit and pass with the upstream fix. Of 10 candidates, 3 were dropped by that check (two did not fail before the fix, one still failed after it).
+
+**Result with the final code: 3 truly fixed out of 14 runs (2 batches of the same 7 cases, one run each), about $0.03 per fixed bug when it works and about $0.11-0.26 per run that fails.** `boltons-252` was fixed in both batches, `boltons-319` in one, and `toolz-602` was accepted by our harness but rejected by the upstream test in both. The raw runs, with every failure, are in `results/rw/`. This is a small, single-run sample: do not read 3/14 as a precise rate. It is far below the toy benchmark, and that gap is the honest picture of where the agent stands on real code.
+
+Getting from 0/7 to there is the useful part, because every step was a real-world failure the toy bugs never showed (all fixed in Patchwright itself):
+
+| What the first real-world runs exposed | The fix |
+|---|---|
+| **Nemotron 3 reasons by default, and in an agent loop with a large prompt that reasoning used the whole reply budget** (finish_reason `length`, empty answer, 20-30 s per step). | Reasoning is off in the loop (`PW_THINK=1` turns it back on). The same request went from 3,000 tokens and 28 s with no answer to 37 tokens and 1 s. |
+| Models invented action names (`read`, `grep`, `bash`) and field names, and a custom JSON protocol is fragile. | **Native tool calling** (`run`, `write`, `edit`, `search`, `finish`) with `tool_choice=required`, so there is no format to get wrong. Unknown names are still mapped when the meaning is obvious. |
+| The model read a 1,400-line file in chunks and never edited anything. | Better localization: the harness matches every issue word against the project's function and class names (rare matches only) and hands over whole function bodies up front, plus nudges after 3 read-only steps. |
+| The old suite already failed on Python 3.11 (`ecoutils` could not even be collected), so no fix could ever "pass the whole suite". | A **baseline run** before any change; a fix is judged on the failures it adds. |
+| Old projects ship `conftest.py` hooks that current pytest cannot load. | The sandbox falls back to `pytest<8` automatically. |
+| A local copy of a real project was treated like a toy repo (half the token budget, no research). | `source_url` tells the agent which public project the copy came from. |
+
 ## Results
 
+
 Real runs on Nebius Token Factory (raw files in `results/`, rebuilt with `python -m bench.summary`).
+
+**Update after the real-world work (native tool calling, reasoning off, better localization), one run per bug:** the 20 toy bugs, tiered, fixed **18/20 (90%)** for **$0.18** in total, about **$0.010 per fixed bug**, 495k tokens (about 25k per run), 54 s on average, and 16 of the 18 fixes came from Super alone. The tables below are the earlier runs with the first protocol (raw file `results/toolcalling/toy-tiered.jsonl`); the two are not the same experiment (one repeat instead of two, a changed agent), so compare the direction, not the decimals. The two bugs still missed are `merge-deep` and `token-bucket`.
 
 <!-- RESULTS:START -->
 Main benchmark (before multi-action turns; see Efficiency below). Compared on the same **40 runs** for every strategy (20 bugs, up to 2 repeats each). "Truly fixed" means the hidden test the agent never saw also passes.

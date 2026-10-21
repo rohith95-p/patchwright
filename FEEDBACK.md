@@ -19,6 +19,9 @@ Written while building Patchwright. Items marked (observed) happened to us; item
 - (observed) Nemotron 3 Super sometimes double-escaped quotes inside the JSON string of a "write file" action, which broke parsing and cost about 2,000 tokens per occurrence. We fixed it on our side by sending file content in a raw block instead of inside JSON. A structured-output or JSON-mode option for Nemotron would remove this class of failure.
 - (observed) Nemotron 3 Ultra's strongest property for agents was how few turns it needed: it fixed bugs in 6 to 13 steps one action at a time, and in roughly 3 to 12 steps with several actions per reply. Because the conversation is re-sent every call, that made it cheaper per fixed bug than expected.
 
+- (observed) **Reasoning is on by default for Nemotron 3 and nothing in the model card or the API reference warned us about its cost in agent loops.** With a large prompt and a few thousand `max_tokens`, Super spent the entire budget reasoning and returned an empty `content` with `finish_reason: length`, 20-30 seconds per step. `extra_body={"chat_template_kwargs": {"enable_thinking": False}}` fixed it (37 tokens, 1 s), but we only found that flag by experiment. A visible `reasoning` toggle in the Token Factory docs and playground would save every agent builder a day.
+- (observed) Native tool calling with `tool_choice="required"` works well on Super and Ultra and removed a whole class of format errors for us; it deserves a worked example in the docs.
+
 ## NVIDIA
 
 - (observed) The free hosted endpoint at build.nvidia.com returned 404 for some listed models (for example Nemotron 3 Super) on a developer key, and was rate limited (HTTP 429) under parallel load, which made it unsuitable for benchmarking and a reason to move to Token Factory.
