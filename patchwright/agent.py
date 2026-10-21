@@ -100,13 +100,50 @@ def _looks_like_broken_write(text: str) -> bool:
     return bool(re.search(r'"action"\s*:\s*"write"', text))
 
 
-def triage(llm: LLM, snapshot: str, issue: str) -> str:
-    msg = (f"Issue:\n{issue}\n\nRepository snapshot:\n{snapshot[:9000]}\n\n"
-           "In under 120 words: which files and functions are most likely involved, and what is the suspected root cause?")
+TRIAGE_PROMPT = """You triage bug reports for an automated bug-fixing agent that works inside one repository.
+
+Issue:
+{issue}
+
+Repository snapshot:
+{snapshot}
+
+Decide three things.
+1. valid: true only if the issue describes ONE specific, observable misbehaviour of code in this repository (what happens versus what should happen, or an error), so a failing test can be written for it. valid is false for requests to find or review bugs in general, new features, questions, or reports too vague to test.
+2. difficulty:
+   "easy"   the cause is in one function and is visible from the issue (a wrong operator, an off-by-one, a missing case).
+   "medium" one file, but the right fix needs reasoning about edge cases or several related behaviours.
+   "hard"   the fix needs several coordinated changes or subtle semantics: operator precedence or associativity, time, ordering or concurrency, graph or recursive algorithms, state kept across calls, or the issue gives only a symptom and not the expected behaviour.
+3. hint: the files and functions most likely involved and the suspected root cause, in under 60 words.
+
+Reply with ONE JSON object and nothing else:
+{{"valid": true, "reason": "<one short sentence>", "difficulty": "easy|medium|hard", "hint": "<text>"}}"""
+
+
+def _parse_triage(text: str) -> dict:
+    """Tolerant parser: anything unreadable falls back to a valid, medium task, i.e. the normal tiered path."""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    dec = json.JSONDecoder(strict=False)
+    for m in re.finditer(r"\{", text):
+        try:
+            obj, _ = dec.raw_decode(text[m.start():])
+        except json.JSONDecodeError:
+            continue
+        if isinstance(obj, dict) and ("difficulty" in obj or "valid" in obj):
+            diff = str(obj.get("difficulty", "medium")).strip().lower()
+            return {"valid": obj.get("valid", True) is not False,
+                    "difficulty": diff if diff in ("easy", "medium", "hard") else "medium",
+                    "reason": str(obj.get("reason", ""))[:300], "hint": str(obj.get("hint", ""))[:600], "parsed": True}
+    return {"valid": True, "difficulty": "medium", "reason": "", "hint": text[:600], "parsed": False}
+
+
+def triage(llm: LLM, snapshot: str, issue: str) -> dict:
     try:
-        return llm.chat("nano", [{"role": "user", "content": msg}], max_tokens=2500)
+        text = llm.chat("nano", [{"role": "user", "content": TRIAGE_PROMPT.format(issue=issue, snapshot=snapshot[:9000])}],
+                        max_tokens=2500)
     except Exception as e:  # noqa: BLE001
-        return f"(triage unavailable: {e})"
+        return {"valid": True, "difficulty": "medium", "reason": "", "hint": f"(triage unavailable: {e})", "parsed": False}
+    return _parse_triage(text)
 
 
 def _verify(sb: Sandbox, act: dict) -> tuple[bool, str]:
@@ -181,7 +218,7 @@ def _detail(act: dict) -> str:
 
 
 def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_event=lambda e: None,
-              tiers=None, post_check=None) -> Result:
+              tiers=None, post_check=None, route: bool = False) -> Result:
     t0 = time.time()
     tiers = tiers or TIER_ORDER
 
@@ -196,8 +233,18 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
     with Sandbox(repo_url, ref) as sb:
         sb.setup()
         snapshot = sb.snapshot()
-        hint = triage(llm, snapshot, issue)
+        info = triage(llm, snapshot, issue)
+        hint = info["hint"]
         emit({"type": "triage", "tier": "nano", "text": hint})
+        if route:
+            if not info["valid"]:
+                emit({"type": "route", "valid": False, "difficulty": info["difficulty"], "tiers": [], "why": info["reason"]})
+                res = Result(False, "nano", 0, "rejected: " + (info["reason"] or "not a specific, testable bug report"),
+                             "", [], time.time() - t0, None, 0)
+                emit({"type": "done", "solved": False, "tier": "nano", "steps": 0, "summary": res.summary, "diff": ""})
+                return res
+            tiers = ["ultra"] if info["difficulty"] == "hard" else ["super", "ultra"]
+            emit({"type": "route", "valid": True, "difficulty": info["difficulty"], "tiers": tiers, "why": info["reason"]})
         notes = ""
         steps = 0
         bad = 0

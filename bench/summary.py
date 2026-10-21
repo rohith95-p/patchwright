@@ -14,7 +14,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 START, END = "<!-- RESULTS:START -->", "<!-- RESULTS:END -->"
-NAMES = {"tiered": "Tiered (Super, then Ultra)", "super": "Super only", "ultra": "Ultra only"}
+NAMES = {"tiered": "Tiered (Super, then Ultra)", "routed": "Routed (Nano triage decides)", "super": "Super only", "ultra": "Ultra only"}
 
 
 def load(path: str, relabel_rep: int | None = None) -> list[dict]:
@@ -39,7 +39,9 @@ def summarise(rows: list[dict]) -> dict:
             "tokens": tokens, "cost": cost, "cost_per_fix": cost / fixed if fixed else None,
             "errors": sum(1 for r in rows if r.get("error")),
             "false_pass": sum(1 for r in rows if r.get("solved") and not r.get("hidden_ok")),
-            "at_super": sum(1 for r in rows if r.get("hidden_ok") and r.get("tier") == "super")}
+            "at_super": sum(1 for r in rows if r.get("hidden_ok") and r.get("tier") == "super"),
+            "refused": sum(1 for r in rows if str(r.get("summary", "")).startswith("rejected")),
+            "to_ultra": sum(1 for r in rows if any(e.get("type") == "route" and e.get("tiers") == "['ultra']" for e in r.get("trace", [])))}
 
 
 def compare(data: dict[str, list[dict]]) -> tuple[dict, int]:
@@ -52,7 +54,7 @@ def markdown(stats: dict, n_common: int, total_runs: dict) -> str:
            "\"Truly fixed\" means the hidden test the agent never saw also passes.", "",
            "| Strategy | Truly fixed | Avg time per bug | Tokens | Est. cost | Est. cost per fixed bug |",
            "|---|---|---|---|---|---|"]
-    for c in ("tiered", "super", "ultra"):
+    for c in ("tiered", "routed", "super", "ultra"):
         if c not in stats:
             continue
         s = stats[c]
@@ -63,6 +65,10 @@ def markdown(stats: dict, n_common: int, total_runs: dict) -> str:
         t = stats["tiered"]
         notes.append(f"In the tiered runs, Super alone fixed {t['at_super']} of the {t['fixed']} truly fixed bugs; "
                      f"Ultra rescued the other {t['fixed'] - t['at_super']}.")
+    if "routed" in stats:
+        rs = stats["routed"]
+        notes.append(f"Routing: Nano refused {rs['refused']} task(s) as not specific bug reports (every benchmark task is a real bug, so any refusal is a mistake) "
+                     f"and sent {rs['to_ultra']} straight to Ultra; the rest started with Super.")
     fp = {NAMES[c]: s["false_pass"] for c, s in stats.items() if s["false_pass"]}
     if fp:
         notes.append("Runs the harness accepted but the hidden test rejected: " + ", ".join(f"{k} {v}" for k, v in fp.items()) + ".")
@@ -90,10 +96,13 @@ def main() -> None:
     ap.add_argument("--tiered-fill")
     ap.add_argument("--super", required=True)
     ap.add_argument("--ultra", required=True)
+    ap.add_argument("--routed", help="optional: results of the routed strategy")
     ap.add_argument("--write", action="store_true", help="copy raw files to results/ and update README.md")
     a = ap.parse_args()
     tiered = load(a.tiered) + (load(a.tiered_fill, relabel_rep=1) if a.tiered_fill else [])
     data = {"tiered": tiered, "super": load(a.super), "ultra": load(a.ultra)}
+    if a.routed:
+        data["routed"] = load(a.routed)
     stats, n_common = compare(data)
     md = markdown(stats, n_common, {c: len(r) for c, r in data.items()})
     print(md)

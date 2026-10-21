@@ -30,7 +30,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from bench.run_bench import CONFIGS, build_repo
+from bench.run_bench import CONFIGS, ROUTED, build_repo
 from bench.tasks import TASKS
 from dashboard.server import results as bench_results
 from patchwright.agent import run_agent
@@ -85,7 +85,7 @@ def _load_history() -> None:
             pass
 
 
-def _worker(run: dict, repo: str, issue: str, tiers: list[str], example: dict | None) -> None:
+def _worker(run: dict, repo: str, issue: str, tiers: list[str], example: dict | None, route: bool = False) -> None:
     with SLOTS:
         run["status"] = "running"
         run["started"] = time.time()
@@ -101,7 +101,7 @@ def _worker(run: dict, repo: str, issue: str, tiers: list[str], example: dict | 
             return "failed" not in out and "error" not in out.lower() and "passed" in out
 
         try:
-            res = run_agent(llm, repo, issue, on_event=on_event, tiers=tiers, post_check=hidden_check if example else None)
+            res = run_agent(llm, repo, issue, on_event=on_event, tiers=tiers, post_check=hidden_check if example else None, route=route)
             run["status"] = "solved" if res.solved else "unsolved"
             run["result"] = {"solved": res.solved, "tier": res.tier_reached, "steps": res.steps, "summary": res.summary,
                              "diff": res.diff, "seconds": round(res.seconds, 1), "hidden_ok": res.hidden_ok,
@@ -165,7 +165,7 @@ def start_run(req: RunRequest) -> dict:
            "created": time.time(), "example": bool(example)}
     with LOCK:
         RUNS[rid] = run
-    threading.Thread(target=_worker, args=(run, repo, issue, CONFIGS[req.mode], example), daemon=True).start()
+    threading.Thread(target=_worker, args=(run, repo, issue, CONFIGS[req.mode], example, req.mode in ROUTED), daemon=True).start()
     return {"id": rid}
 
 

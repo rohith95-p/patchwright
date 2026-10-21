@@ -69,6 +69,7 @@ async function pageRun(app, runId) {
           <button data-m="tiered" class="${form.mode === "tiered" ? "on" : ""}" title="Super first, escalate to Ultra if stuck">Tiered</button>
           <button data-m="super" class="${form.mode === "super" ? "on" : ""}">Super only</button>
           <button data-m="ultra" class="${form.mode === "ultra" ? "on" : ""}">Ultra only</button>
+          <button data-m="routed" class="${form.mode === "routed" ? "on" : ""}" title="Nano judges the task first: refuses non-bugs, sends hard bugs straight to Ultra">Routed</button>
         </div>
         <button class="btn block" id="go">Fix this bug</button>
         <p class="hint" id="formhint"></p>
@@ -131,7 +132,8 @@ function consoleHTML(run, events, result, status) {
   const statusPill = { queued: `<span class="pill">queued</span>`, running: `<span class="pill live"><i class="dot"></i>working</span>`, solved: `<span class="pill ok">verified fix</span>`, unsolved: `<span class="pill bad">not solved</span>`, error: `<span class="pill bad">error</span>`, interrupted: `<span class="pill warn">interrupted</span>` }[status] || "";
   const startEv = events.find(e => e.type === "start");
   const models = startEv?.models || CONFIG.models;
-  const tiersUsed = startEv?.tiers || (run.mode === "tiered" ? ["super", "ultra"] : [run.mode]);
+  const routeEv = [...events].reverse().find(e => e.type === "route");
+  const tiersUsed = routeEv ? routeEv.tiers : (startEv?.tiers || (run.mode === "tiered" ? ["super", "ultra"] : [run.mode]));
   // pipeline state
   const st = { nano: "idle", super: "idle", ultra: "idle" };
   if (events.some(e => e.type === "triage")) st.nano = "done";
@@ -190,6 +192,9 @@ function evHTML(e) {
   const t = e.tier ? TIERS[e.tier] : null, c = t ? t.color : "var(--line2)";
   const head = (k, extra = "") => `<div class="h"><span class="k">${k}</span>${t ? `<span class="pill" style="color:${c}">${t.name}</span>` : ""}${extra}<span class="time mono">${e.t ?? ""}s</span></div>`;
   if (e.type === "triage") return `<div class="ev" style="--c:${TIERS.nano.color}">${head("Triage")}<pre>${esc((e.text || "").trim().slice(0, 700))}</pre></div>`;
+  if (e.type === "route") return e.valid
+    ? `<div class="ev" style="--c:var(--brand)">${head("Routing decision", `<span class="pill ${e.difficulty === "hard" ? "warn" : "ok"}">${esc(e.difficulty)}</span><span>${e.tiers.length === 1 ? "straight to " + TIERS[e.tiers[0]].name : "Super first, Ultra if stuck"}</span>`)}${e.why ? `<pre>${esc(e.why)}</pre>` : ""}</div>`
+    : `<div class="ev verify no">${head("Not a specific bug report: nothing was spent beyond triage")}<pre>${esc(e.why || "The task could not be turned into a testable bug.")}</pre></div>`;
   if (e.type === "tier_start") return `<div class="ev" style="--c:${c}">${head("Starting", `<span class="mono" style="color:var(--mute)">${esc(e.model)}</span>`)}</div>`;
   if (e.type === "escalate") return `<div class="ev esc">${head("Escalating", `<span>${TIERS[e.from].name} could not finish, handing the original problem to ${TIERS[e.to].name}</span>`)}</div>`;
   if (e.type === "review") return `<div class="ev verify ${e.ok ? "ok" : "no"}">${head(e.ok ? "Edge-case review passed" : "Edge-case review found a problem")}${e.ok ? "" : `<pre>${esc((e.why || "").slice(0, 600))}</pre>`}</div>`;
@@ -209,11 +214,11 @@ function diffHTML(d) {
 }
 
 /* ---------- benchmark page ---------- */
-const STRAT = { tiered: { name: "Tiered (Super → Ultra)", color: "var(--brand)" }, super: { name: "Super only", color: "var(--super)" }, ultra: { name: "Ultra only", color: "var(--ultra)" } };
+const STRAT = { tiered: { name: "Tiered (Super → Ultra)", color: "var(--brand)" }, super: { name: "Super only", color: "var(--super)" }, ultra: { name: "Ultra only", color: "var(--ultra)" }, routed: { name: "Routed (triage decides)", color: "var(--nano)" } };
 
 async function pageBench(app) {
   const data = await api("/api/bench");
-  const R = data.results, keys = ["tiered", "super", "ultra"].filter(k => R[k]);
+  const R = data.results, keys = ["tiered", "routed", "super", "ultra"].filter(k => R[k]);
   const note = data.prices_are_estimates ? `<div class="banner">Dollar figures use estimated per-token prices (see <code>patchwright/prices.json</code>), not official Nebius billing. Fix rates, steps and times are measured.</div>` : "";
   app.innerHTML = `
     <h1>Does routing between models actually pay off?</h1>

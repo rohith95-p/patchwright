@@ -16,9 +16,9 @@ RUNS = ROOT / "runs"
 MAP_FILE = RUNS / "monitor_map.json"
 
 TASKS = [
-    {"key": "ultra", "label": "Ultra only", "log": "bench_ultra.log", "glob": "ultra-*.jsonl", "total": 40, "workers": 8},
-    {"key": "super", "label": "Super only", "log": "bench_super.log", "glob": "super-*.jsonl", "total": 40, "workers": 6},
-    {"key": "tiered_fill", "label": "Tiered: 5 missing runs", "log": "bench_tiered_fill.log", "glob": "tiered-*.jsonl", "total": 5, "workers": 3},
+    {"key": "ultra", "label": "Ultra only", "log": "bench_ultra.log", "glob": "ultra-*.jsonl", "total": 40, "workers": 7},
+    {"key": "tiered", "label": "Tiered (Super, then Ultra)", "log": "bench_tiered.log", "glob": "tiered-*.jsonl", "total": 40, "workers": 6},
+    {"key": "super", "label": "Super only", "log": "bench_super.log", "glob": "super-*.jsonl", "total": 40, "workers": 5},
 ]
 URL_RE = re.compile(r"pwbench-([A-Za-z0-9_]+)[\\/]+r(\d+)[\\/]+([\w\-]+)")
 SUMMARY_RE = re.compile(r"^\w+: \d+/\d+ truly fixed", re.M)
@@ -91,9 +91,8 @@ def _mapping(live: list[dict]) -> dict[str, str]:
 
 def _rows_for(task: dict, log_path: Path) -> list[dict]:
     files = sorted(glob.glob(str(RUNS / task["glob"])), key=lambda f: Path(f).stat().st_mtime)
-    if task["key"] == "tiered_fill":
-        born = log_path.stat().st_ctime if log_path.exists() else 0
-        files = [f for f in files if Path(f).stat().st_ctime >= born - 5]
+    born = log_path.stat().st_ctime if log_path.exists() else 0
+    files = [f for f in files if Path(f).stat().st_ctime >= born - 5]  # only files made by this log's run
     if not files:
         return []
     rows = []

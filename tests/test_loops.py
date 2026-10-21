@@ -16,7 +16,8 @@ pytestmark = pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
 class FakeLLM:
     """Plays back scripted replies for the working tiers; answers triage with a fixed hint."""
 
-    def __init__(self, script, tokens_per_call=100):
+    def __init__(self, script, tokens_per_call=100, nano_reply="hint: look at stats.py"):
+        self.nano_reply = nano_reply
         self.script = list(script)
         self.usage = Usage()
         self.calls = 0
@@ -24,7 +25,7 @@ class FakeLLM:
 
     def chat(self, tier, messages, temperature=0.2, max_tokens=4096):
         if tier == "nano":
-            return "hint: look at stats.py"
+            return self.nano_reply
         self.calls += 1
         self.usage.add(tier, self.tokens_per_call, 10, 0.0)
         return self.script.pop(0) if self.script else json.dumps({"action": "run", "cmd": f"echo filler {self.calls}"})
@@ -176,3 +177,71 @@ def test_model_is_warned_when_only_a_few_steps_are_left(repo):
     llm.chat = spy
     events_of(llm, url, task["issue"], ["super"])
     assert any("call finish NOW" in m for m in seen)
+
+
+# ---- routing: triage decides validity and difficulty, and the harness acts on it ----
+def triage_json(valid=True, difficulty="medium", reason="because", hint="look at stats.py"):
+    return json.dumps({"valid": valid, "reason": reason, "difficulty": difficulty, "hint": hint})
+
+
+SOLVE = [act(action="write", path="test_new.py", content="from stats import average\n\ndef test_a():\n    assert average([2, 4, 6]) == 4\n"),
+         act(action="write", path="stats.py", content="def average(nums):\n    return sum(nums) / len(nums)\n"),
+         act(action="finish", repro_test_cmd="python -m pytest -q test_new.py", suite_cmd="python -m pytest -q", summary="fixed")]
+
+
+def routed(llm, url, issue, tiers=("super", "ultra")):
+    evs = []
+    res = agent.run_agent(llm, url, issue, on_event=evs.append, tiers=list(tiers), route=True)
+    return res, evs
+
+
+def test_invalid_task_is_refused_and_nothing_more_is_spent(repo):
+    url, task = repo
+    llm = FakeLLM(SOLVE, nano_reply=triage_json(valid=False, reason="asks to find all bugs"))
+    res, evs = routed(llm, url, "find all the bugs")
+    assert not res.solved and res.summary.startswith("rejected") and res.steps == 0
+    assert llm.calls == 0, "no working-tier model call may happen for an invalid task"
+    assert any(e["type"] == "route" and e["valid"] is False for e in evs)
+
+
+def test_hard_task_goes_straight_to_ultra_and_super_is_never_used(repo):
+    url, task = repo
+    llm = FakeLLM(SOLVE, nano_reply=triage_json(difficulty="hard"))
+    res, evs = routed(llm, url, task["issue"])
+    assert res.solved and res.tier_reached == "ultra"
+    assert "super" not in llm.usage.by_tier
+    assert next(e for e in evs if e["type"] == "route")["tiers"] == ["ultra"]
+
+
+def test_easy_task_starts_with_super(repo):
+    url, task = repo
+    llm = FakeLLM(SOLVE, nano_reply=triage_json(difficulty="easy"))
+    res, evs = routed(llm, url, task["issue"])
+    assert res.solved and res.tier_reached == "super" and "ultra" not in llm.usage.by_tier
+    assert next(e for e in evs if e["type"] == "route")["tiers"] == ["super", "ultra"]
+
+
+def test_unreadable_triage_falls_back_to_the_normal_tiered_path(repo):
+    url, task = repo
+    llm = FakeLLM(SOLVE, nano_reply="I am not sure what you mean, sorry.")
+    res, evs = routed(llm, url, task["issue"])
+    assert res.solved and res.tier_reached == "super", "garbage triage must never block or mis-route a task"
+
+
+def test_tiered_mode_ignores_the_triage_verdict(repo):
+    url, task = repo
+    llm = FakeLLM(SOLVE, nano_reply=triage_json(valid=False, difficulty="hard"))
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert res.solved and not any(e["type"] == "route" for e in evs)
+
+
+def test_parse_triage_variants():
+    from patchwright.agent import _parse_triage
+    t = _parse_triage('```json\n' + triage_json(difficulty="Hard", hint="x") + '\n```')
+    assert t["difficulty"] == "hard" and t["valid"] is True and t["parsed"]
+    assert _parse_triage(triage_json(valid=False))["valid"] is False
+    assert _parse_triage(triage_json(difficulty="impossible"))["difficulty"] == "medium"
+    assert _parse_triage('{"valid": "false-ish"}')["valid"] is True, "only a real false may refuse a task"
+    assert _parse_triage("<think>{\"valid\": false}</think>" + triage_json())["valid"] is True
+    bad = _parse_triage("no json")
+    assert bad["valid"] and bad["difficulty"] == "medium" and not bad["parsed"]

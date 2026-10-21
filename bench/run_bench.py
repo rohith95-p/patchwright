@@ -25,8 +25,9 @@ from patchwright.llm import LLM
 
 from .tasks import TASKS
 
-CONFIGS = {"tiered": ["super", "ultra"], "super": ["super"], "ultra": ["ultra"]}
-EST_TOKENS_PER_RUN = {"tiered": 35_000, "super": 30_000, "ultra": 45_000}  # from measured runs; rough
+CONFIGS = {"tiered": ["super", "ultra"], "super": ["super"], "ultra": ["ultra"], "routed": ["super", "ultra"]}
+ROUTED = {"routed"}  # triage decides: refuse invalid tasks, send hard ones straight to Ultra
+EST_TOKENS_PER_RUN = {"tiered": 35_000, "super": 30_000, "ultra": 45_000, "routed": 33_000}  # from measured runs; rough
 
 
 def build_repo(task: dict, root: Path) -> str:
@@ -58,7 +59,7 @@ def run_task(task: dict, config: str, root: Path, rep: int = 0) -> dict:
         if e["type"] in ("start", "end"):
             return
         t = {"t": e.get("t"), "type": e["type"], "tier": e.get("tier"), "tok": e.get("usage", {}).get("tokens")}
-        for k, n in (("action", 20), ("detail", 90), ("why", 220), ("reason", 120), ("obs", 110), ("head", 160)):
+        for k, n in (("action", 20), ("detail", 90), ("why", 220), ("reason", 120), ("obs", 110), ("head", 160), ("difficulty", 10), ("tiers", 40)):
             if e.get(k):
                 t[k] = str(e[k])[:n]
         if "ok" in e:
@@ -66,7 +67,7 @@ def run_task(task: dict, config: str, root: Path, rep: int = 0) -> dict:
         trace.append(t)
 
     try:
-        res = run_agent(llm, repo, task["issue"], on_event=keep, tiers=CONFIGS[config], post_check=hidden_check)
+        res = run_agent(llm, repo, task["issue"], on_event=keep, tiers=CONFIGS[config], post_check=hidden_check, route=config in ROUTED)
         row.update(solved=res.solved, hidden_ok=bool(res.hidden_ok), tier=res.tier_reached, steps=res.steps,
                    seconds=round(res.seconds, 1), diff=res.diff[:1500], summary=res.summary)
     except Exception as e:  # noqa: BLE001
