@@ -1,4 +1,5 @@
 """Docker sandbox: the repo lives in a throwaway container; the agent never touches the host."""
+import re
 import shutil
 import subprocess
 import tempfile
@@ -184,10 +185,25 @@ class Sandbox:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8", newline="\n")
 
+    def scratch_files(self) -> list[str]:
+        """New files the agent made for its own investigation (debug.py, temp.txt, a root-level test_x.py ...).
+        A new file at the repository root is scratch, unless the project has no tests directory and it is a test."""
+        has_tests_dir = any((self.host_dir / "repo" / d).is_dir() for d in ("tests", "test"))
+        out = []
+        for f in self.new_files():
+            if "/" in f:
+                continue
+            is_test = bool(re.search(r"^(test_[^/]*|[^/]*_test)\.py$", f))
+            if not (is_test and not has_tests_dir):
+                out.append(f)
+        return out
+
     def diff(self) -> str:
+        """The patch to deliver: changes to existing files plus the agent's new tests, without its scratch files."""
         repo = str(self.host_dir / "repo")
         _run(["git", "-C", repo, "add", "-N", "."], 60)
-        return _run(["git", "-C", repo, "diff"], 60)[1]
+        skip = [f":(exclude){f}" for f in self.scratch_files()]
+        return _run(["git", "-C", repo, "diff", "--", ".", *skip], 60)[1]
 
     def close(self) -> None:
         _run(["docker", "rm", "-f", self.name], 60)

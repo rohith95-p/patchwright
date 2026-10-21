@@ -16,24 +16,47 @@ from .config import ENV_PATH  # importing config loads .env, so TAVILY_API_KEY i
 
 ENV_FILE = ENV_PATH
 API = "https://api.tavily.com/search"
+# Bug research belongs on developer sources; without this a query can match unrelated pages (a pest-control page, in one real run).
+DEFAULT_DOMAINS = ["github.com", "stackoverflow.com", "docs.python.org", "python.org", "pypi.org", "readthedocs.io", "readthedocs.org",
+                   "discuss.python.org", "realpython.com", "peps.python.org"]
+
+
+def _domains() -> list[str]:
+    raw = os.getenv("TAVILY_DOMAINS")
+    if raw is None:
+        return DEFAULT_DOMAINS
+    return [d.strip() for d in raw.split(",") if d.strip()]  # an empty TAVILY_DOMAINS searches the whole web
+
+
+def _call(key: str, query: str, max_results: int, domains: list[str]) -> list[dict]:
+    r = httpx.post(API, json={"api_key": key, "query": query[:380], "max_results": max_results, "search_depth": "basic",
+                              **({"include_domains": domains} if domains else {})}, timeout=30)
+    r.raise_for_status()
+    return [{"title": i.get("title", ""), "url": i.get("url", ""), "content": (i.get("content") or "")[:320]}
+            for i in r.json().get("results", [])]
 
 
 def search(query: str, max_results: int = 3) -> list[dict]:
-    """Tavily results as [{title, url, content}], or [] when the key is missing or the call fails."""
+    """Tavily results as [{title, url, content}], or [] when the key is missing or the call fails.
+    Developer sources first; if that finds nothing, one search of the whole web."""
     key = os.getenv("TAVILY_API_KEY", "")
     if not key or not query.strip():
         return []
     last = ""
-    for attempt in range(3):  # a transient failure or brief rate limit should not silently disable the feature
-        try:
-            r = httpx.post(API, json={"api_key": key, "query": query[:380], "max_results": max_results, "search_depth": "basic"}, timeout=30)
-            r.raise_for_status()
+    for domains in (_domains(), []):
+        found: list[dict] = []
+        for attempt in range(3):  # a transient failure or brief rate limit should not silently disable the feature
+            try:
+                found = _call(key, query, max_results, domains)
+                break
+            except (httpx.HTTPError, ValueError) as e:
+                last = f"{type(e).__name__}: {e}"[:200]
+                time.sleep(1.5 * (attempt + 1))
+        if found:
             search.last_error = ""
-            return [{"title": i.get("title", ""), "url": i.get("url", ""), "content": (i.get("content") or "")[:320]}
-                    for i in r.json().get("results", [])]
-        except (httpx.HTTPError, ValueError) as e:
-            last = f"{type(e).__name__}: {e}"[:200]
-            time.sleep(1.5 * (attempt + 1))
+            return found
+        if not domains:
+            break
     search.last_error = last
     return []
 

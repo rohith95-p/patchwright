@@ -383,3 +383,47 @@ def test_shell_command_with_unescaped_quotes_is_salvaged():
     assert _parse_actions('{"action":"run","cmd":"grep -n "class RRCache" src/x.py"}') == [
         {"action": "run", "cmd": 'grep -n "class RRCache" src/x.py'}]
     assert _parse_actions('{"action":"run","cmd":"ls"}') == [{"action": "run", "cmd": "ls"}], "valid JSON is never reinterpreted"
+
+
+# ---- Tavily search: developer sources first, whole web as a fallback, never silent ----
+def test_search_falls_back_to_the_whole_web_when_developer_sources_find_nothing(monkeypatch):
+    from patchwright import tools
+    calls = []
+
+    def fake_call(key, query, max_results, domains):
+        calls.append(list(domains))
+        return [] if domains else [{"title": "t", "url": "https://x.example", "content": "c"}]
+    monkeypatch.setenv("TAVILY_API_KEY", "k")
+    monkeypatch.setattr(tools, "_call", fake_call)
+    out = tools.search("anything")
+    assert out and out[0]["url"] == "https://x.example"
+    assert calls[0] == tools.DEFAULT_DOMAINS and calls[1] == [], "filtered first, then unfiltered"
+
+
+def test_search_reports_the_error_when_everything_fails(monkeypatch):
+    import httpx
+    from patchwright import tools
+
+    def boom(*a, **k):
+        raise httpx.ConnectError("no network")
+    monkeypatch.setenv("TAVILY_API_KEY", "k")
+    monkeypatch.setattr(tools, "_call", boom)
+    monkeypatch.setattr(tools.time, "sleep", lambda s: None)
+    assert tools.search("q") == [] and "ConnectError" in tools.search.last_error
+
+
+def test_empty_tavily_domains_env_means_search_everywhere(monkeypatch):
+    from patchwright import tools
+    monkeypatch.setenv("TAVILY_DOMAINS", "")
+    assert tools._domains() == []
+    monkeypatch.setenv("TAVILY_DOMAINS", "a.com, b.org")
+    assert tools._domains() == ["a.com", "b.org"]
+    monkeypatch.delenv("TAVILY_DOMAINS")
+    assert tools._domains() == tools.DEFAULT_DOMAINS
+
+
+def test_related_query_is_project_name_plus_issue_title():
+    from patchwright.agent import related_query
+    q = related_query("https://github.com/someone/cachetools-bugfix-demo.git", "RRCache.popitem() raises the wrong error\n\nlong body here")
+    assert q == "cachetools python RRCache.popitem() raises the wrong error"
+    assert "someone" not in q and "demo" not in q and "long body" not in q

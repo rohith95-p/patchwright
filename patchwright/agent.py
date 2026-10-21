@@ -259,6 +259,30 @@ def _compact(msgs: list[dict]) -> list[dict]:
     return out + msgs[-KEEP_FULL:]
 
 
+NOISE_WORDS = {"demo", "bugfix", "fix", "test", "tests", "example", "sandbox", "copy", "fork", "playground", "repro"}
+
+
+def related_query(repo_url: str, issue: str) -> str:
+    """Project name plus the issue title: what a developer would type to find the discussion of this bug."""
+    name = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+    words = [w for w in re.split(r"[-_]", name) if w and w.lower() not in NOISE_WORDS]
+    title = (issue.strip().splitlines() or [""])[0][:200]
+    return f"{' '.join(words) or name} python {title}".strip()
+
+
+def summarize_fix(llm: LLM, issue: str, diff: str) -> str:
+    """Two plain sentences for the pull request: the root cause and what the patch changes. Nano is cheap and enough."""
+    prompt = (f"Bug report title: {issue.strip().splitlines()[0][:200] if issue.strip() else ''}\n\nPatch:\n{diff[:5000]}\n\n"
+              "In at most 3 sentences, state the root cause of the bug and what this patch changes to fix it. "
+              "Plain text, no preamble, no markdown.")
+    try:
+        text = llm.chat("nano", [{"role": "user", "content": prompt}], temperature=0.1, max_tokens=900)
+    except Exception:  # noqa: BLE001
+        return ""
+    text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
+    return text[:700]
+
+
 def _auto_finish_act(sb: Sandbox) -> dict | None:
     """If the agent left new test files behind, build the finish action for it so the harness can still check the work.
     The harness verifies the result itself, so this cannot make a wrong fix pass."""
@@ -330,8 +354,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             return format_results(results) if results else ""
 
         if REMOTE_RESEARCH and repo_url.startswith("http"):  # a real repository: look for related public discussion
-            slug = repo_url.rstrip("/").split("github.com/")[-1].removesuffix(".git")
-            ctx = research(f"{slug} {issue[:220]}", "related discussion")
+            ctx = research(related_query(repo_url, issue), "related discussion")
             if ctx:
                 hint += "\n\nPossibly related web results (Tavily; may be about a different problem):\n" + ctx[:1500]
         own = own_modules(sb.host_dir / "repo")
@@ -356,7 +379,11 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                                       "If the review test itself contradicts the issue, finish again unchanged.")
             if not ok:
                 return None, why
-            res = Result(True, tier, steps, act.get("summary", ""), sb.diff(), list(sources), time.time() - t0, None, bad)
+            patch_text = sb.diff()
+            summary = act.get("summary", "")
+            if auto:  # the model never explained its fix, so have the cheap model describe it from the diff
+                summary = summarize_fix(llm, issue, patch_text) or summary
+            res = Result(True, tier, steps, summary, patch_text, list(sources), time.time() - t0, None, bad)
             res.hidden_ok = post_check(sb) if post_check else None
             emit({"type": "done", "solved": True, "tier": tier, "steps": steps, "summary": res.summary, "auto": auto,
                   "diff": res.diff, "repro_cmd": act.get("repro_test_cmd"), "suite_cmd": act.get("suite_cmd")})

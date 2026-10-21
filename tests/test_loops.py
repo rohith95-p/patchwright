@@ -423,3 +423,26 @@ def test_a_garbled_edit_changes_nothing_and_tells_the_model_how_to_retry(repo):
     events_of(llm, url, task["issue"], ["super"])
     assert any("edit failed" in m and "SEARCH" in m for m in seen)
     assert any("return sum(nums) / (len(nums) - 1)" in m for m in seen), "the file must be exactly as it was"
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_scratch_files_never_reach_the_delivered_patch(repo):
+    from patchwright.sandbox import Sandbox
+    url, task = repo
+    with Sandbox(url) as sb:
+        sb.setup()
+        sb.write("debug.py", "print('x')\n")
+        sb.write("temp.txt", "notes\n")
+        sb.write("test_scratch.py", "def test_s():\n    assert True\n")           # root-level test while a tests/ dir does not exist
+        sb.write("pkg/helper.py", "X = 1\n")                                       # a real new module inside a package
+        sb.write("stats.py", "def average(nums):\n    return sum(nums) / len(nums)\n")
+        d = sb.diff()
+        assert "stats.py" in d and "pkg/helper.py" in d
+        assert "debug.py" not in d and "temp.txt" not in d
+        assert "test_scratch.py" in d, "with no tests directory a root-level test is the project's test"
+    with Sandbox(url) as sb:
+        (sb.host_dir / "repo" / "tests").mkdir()
+        sb.write("tests/test_real.py", "def test_r():\n    assert True\n")
+        sb.write("test_scratch.py", "def test_s():\n    assert True\n")
+        d = sb.diff()
+        assert "tests/test_real.py" in d and "test_scratch.py" not in d.replace("tests/test_real.py", "")
