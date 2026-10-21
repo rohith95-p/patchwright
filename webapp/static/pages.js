@@ -149,7 +149,7 @@ function pageHow(app) {
         ${line(780, 215, 742, 240)}
         ${node(10, 385, 300, 74, "var(--brand)", "Patch + proof", "PR text, tokens, cost, sources")}
         ${curve("M300 350 C 260 370, 200 372, 160 385")}
-        ${node(560, 385, 380, 74, "var(--brand)", "Tavily · research", "library errors, related discussion")}
+        ${node(560, 385, 380, 74, "var(--brand)", "Tavily · research", "errors, discussion, official docs")}
         ${curve("M870 385 C 880 330, 900 280, 925 234", "var(--brand)", true)}
       </svg>
     </div>
@@ -159,7 +159,7 @@ function pageHow(app) {
       <li><b>Reproduce and patch (Super).</b> Writes a failing test, then changes only the lines that must change and never rewrites a big file. It can send up to three actions per reply.</li>
       <li><b>Rescue (Ultra).</b> If Super is stuck, the repo is reset and the strongest model tries again with notes on what failed.</li>
       <li><b>Proof (plain code).</b> The harness reverts the fix and confirms the test fails, restores it and confirms it passes, runs the whole suite, rejects any edit to existing tests, then has a reviewer write edge-case tests.</li>
-      <li><b>Research (Tavily).</b> Library and version errors, and related public discussion for real repositories, with every source shown.</li>
+      <li><b>Research (Tavily).</b> Library and version errors, plus related discussion and official documentation for real repositories, with every source shown.</li>
       <li><b>Delivery.</b> A clean patch (scratch files left out) and a pull-request description with the proof, tokens, cost and sources.</li>
     </ol>
     <div class="card sec"><h2>What it does not do</h2><p>It will not fix every bug and says so when it cannot. It targets Python projects with a test suite. It never merges anything: a human reviews the evidence.</p></div>`;

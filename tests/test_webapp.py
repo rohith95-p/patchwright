@@ -91,8 +91,8 @@ def test_showcase_is_computed_from_the_committed_results():
     for c in ("tiered", "ultra"):
         assert d["efficiency"][c]["after"]["cost_fix"] < d["efficiency"][c]["before"]["cost_fix"]
     rw = d["realworld"]
-    assert len(rw["attempts"]) == 6 and rw["solved_runs"] == 2, "the failures must stay visible"
-    assert [a["run"] for a in rw["attempts"]] == [1, 2, 3, 4, 5, 6] and all(a["lesson"] for a in rw["attempts"])
+    assert len(rw["attempts"]) == 7 and rw["solved_runs"] == 2, "the failures must stay visible"
+    assert [a["run"] for a in rw["attempts"]] == [1, 2, 3, 4, 5, 6, 7] and all(a["lesson"] for a in rw["attempts"])
     assert rw["pr_url"].endswith("/pull/1") and rw["final"]["upstream_test_passes"] is True and rw["final"]["sources"]
     assert set(d["prices"]) == {"nano", "super", "ultra"}
 

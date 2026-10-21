@@ -41,6 +41,7 @@ def env(monkeypatch):
     for t in ("NANO", "SUPER", "ULTRA"):
         monkeypatch.setenv(f"{t}_MODEL", f"fake-{t.lower()}")
     monkeypatch.setattr(agent, "EDGE_REVIEW", False)
+    monkeypatch.setattr(agent, "GROUNDING", False)
 
 
 @pytest.fixture
@@ -463,3 +464,20 @@ def test_one_reply_cannot_feed_back_an_unbounded_amount_of_text(repo):
     events_of(llm, url, task["issue"], ["super"])
     fed = [m for m in seen if m.count("x" * 100) > 0]
     assert fed and all(len(m) <= agent.MAX_FEEDBACK + 400 for m in fed)
+
+
+def test_documentation_lookup_is_for_real_repositories_only(repo, monkeypatch):
+    url, task = repo  # a local repository: there is no published documentation to ground on
+    calls = []
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "GROUNDING", True)
+    monkeypatch.setattr(agent, "docs_search", fake_search(calls))
+    res, evs = events_of(FakeLLM([act(action="run", cmd="ls")]), url, task["issue"], ["super"])
+    assert calls == [] and not any(e["type"] == "research" for e in evs)
+
+
+def test_grounding_query_names_the_library_and_the_broken_api():
+    q = agent.grounding_query("https://github.com/someone/cachetools-bugfix-demo.git",
+                              "RRCache.popitem() on an empty cache raises the wrong exception")
+    assert q.startswith("python cachetools ") and "popitem" in q and "demo" not in q and "bugfix" not in q
+    assert agent.grounding_query("/local/repo", "") == ""

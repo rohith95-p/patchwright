@@ -6,6 +6,9 @@
 
 Built for the Nebius x NVIDIA Global AI Hackathon, Coding and Agentic Engineering track, on **NVIDIA Nemotron** models served by **Nebius Token Factory**, with web search by **Tavily**.
 
+**Demo video:** https://youtu.be/eNE4-9LeZ0c (narration is synthesized speech)  
+**Real pull request, CI green:** https://github.com/rohith95-p/cachetools-bugfix-demo/pull/1
+
 > Benchmark numbers are filled in from real Nebius runs only. Until the table under [Results](#results) is filled in, there are no claims about accuracy or cost.
 
 ## The problem
@@ -20,6 +23,7 @@ Patchwright treats the model as a proposer and a separate harness as the judge. 
 2. The same test **passes with the change restored**.
 3. The project's **existing suite still passes**, and **no existing test file was edited**.
 4. A short **edge-case review** (a second model call writes extra tests for the patch) finds no failing case.
+5. **The project's own quality gates pass.** Patchwright reads the repository's config and CI files, finds the tools it uses (ruff, black, pyright, mypy, flake8), auto-fixes formatting and import order, and reports problems only on lines the patch changed. A fix that passes the tests but would fail the maintainers' CI is not finished. This came from a real failure: our first pull request passed its tests but failed 22 CI checks on lint and type rules; it is now green and the check exists so the next patch does not need a follow-up commit.
 
 The model cannot talk its way past these checks.
 
@@ -43,12 +47,18 @@ Three strategies run on the same bugs so routing is measured, not assumed: `tier
 
 ## How Tavily is used
 
-Tavily is used two ways: the model can ask for a search, and the harness searches on its own where it clearly helps, so the agent benefits even if the model never asks.
+Tavily is called by the harness, not left to the model's initiative (in 300 recorded runs the model never asked for a search by itself). Every query and its sources are shown in the live run view, in the pull-request description under "Web sources consulted", and counted against a cap of 4 lookups per run (`TAVILY_MAX_PER_RUN`).
 
-- **Library and version errors:** when a command fails with a `ModuleNotFoundError`, `ImportError`, a missing module attribute, an unexpected keyword argument, or a `DeprecationWarning`, the harness searches Tavily for that error and shows the top results to the model. The agent's own assertion errors and ordinary runtime errors are deliberately not searched.
-- **Real repositories:** when the task is a real remote repository, the harness looks for related public discussion of the reported symptom before the model starts.
-- **Visible and bounded:** every query and its sources appear in the live run view and under "Web sources consulted" in the pull-request description. At most 4 lookups per run (`TAVILY_MAX_PER_RUN`).
-- **Honest limit:** on our 20-bug benchmark Tavily is never triggered (the bugs are self-contained, with no library errors), so the benchmark numbers do not include any Tavily effect. In 300 earlier recorded runs the model never asked for a search by itself, which is why the harness now does it. Tavily's value shows on real repositories, see the real-world demo.
+| When | What is searched | Where the result goes |
+|---|---|---|
+| **Real repository, before the model starts** | related public discussion: project name plus issue title, developer sources | the triage hint |
+| **Real repository, before the model starts** | **official documentation** for the API in the issue title (Python docs, readthedocs, PyPI only, never the open web) | the agent's first message **and** the edge-case reviewer, so extra tests check documented behaviour |
+| **Any run, on a library or version error** | `ModuleNotFoundError`, `ImportError`, missing attribute, unexpected keyword, `DeprecationWarning` | the next observation, immediately |
+| **When the model asks** | its own query | the next observation |
+
+Our own assertion errors and ordinary runtime errors are deliberately not searched.
+
+**What we measured, honestly.** The 20 benchmark bugs are self-contained, so Tavily has nothing to add there. We tried running the documentation lookup on all of them anyway: it cost about 26% more tokens (1.02M vs 0.81M on the 15 bugs both runs finished) and fixed 15/15 versus 14/15, a difference inside run-to-run noise. The lookup returned standard-library pages that had nothing to do with the made-up bugs. So it is now **limited to real repositories**, where documentation exists, and the benchmark numbers contain no Tavily effect. On the one real task (cachetools) Tavily found related issues and the project's documentation, **not the fix**; the one run made after adding the documentation lookup did not solve the task, so we make no claim that it helps the fix rate. What it does give is grounding and an audit trail: the sources the agent saw are on the pull request.
 
 ## Quick start
 
@@ -97,7 +107,7 @@ The benchmark above is synthetic, so we also ran Patchwright on a real, closed i
 - **Result:** [pull request #1](https://github.com/rohith95-p/cachetools-bugfix-demo/pull/1). Nemotron 3 Super fixed it alone in 14 steps (about 3 minutes, about $0.055). The patch is two files: a 2-line emptiness check in `RRCache.popitem()` (the same approach upstream took) and a new test file. The upstream test passes with it.
 - **Tavily on a real repository:** before the model starts, the harness searches developer sources for related discussion (project name plus issue title) and shows the sources in the live view and the pull request. It found related cachetools issues and the PyPI page, **not the fix**; the model still had to find the bug, write a failing test and make the change.
 
-### The honest history: 6 runs, 2 solved
+### The honest history: 7 runs, 2 solved
 
 Each failure exposed a real flaw that the toy benchmark never showed, and each was fixed in Patchwright itself (with a regression test) before the next run. The raw runs are in `results/realworld/attempts/`.
 
@@ -109,8 +119,9 @@ Each failure exposed a real flaw that the toy benchmark never showed, and each w
 | 4 | **solved**, but messy | the patch shipped five scratch files and Tavily returned a pest-control page. Scratch files are now excluded; Tavily searches developer sources with a clean query |
 | 5 | not solved | the model put the edit markers inside JSON and then read whole files (328k tokens). Edits given as JSON fields are understood; reads are kept to small ranges and capped |
 | 6 | **solved**, clean | the pull request above |
+| 7 | not solved | re-run after adding the documentation lookup (below), Super only, 14 steps, $0.053. Same task, same code otherwise: a reminder that one run proves little. Kept in `results/realworld/attempts/`; the published result above is run 6 |
 
-Total for all six runs: about 1.3 million tokens and about $0.75. So on this real task Patchwright succeeds in some runs and not others: the result is 2 of 6, and the 4 failures are in the table, not hidden. Real repositories are harder than our toy bugs, and the loop-safety limits (token caps, repeat detection, refusing destructive edits) are what kept the four failures cheap.
+Total for all seven runs: about 1.4 million tokens and about $0.80. So on this real task Patchwright succeeds in some runs and not others: the result is 2 of 7, and the 5 failures are in the table, not hidden. Real repositories are harder than our toy bugs, and the loop-safety limits (token caps, repeat detection, refusing destructive edits) are what kept the four failures cheap.
 
 ## Spending safety
 

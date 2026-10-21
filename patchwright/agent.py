@@ -12,11 +12,11 @@ import time
 from dataclasses import dataclass, field
 
 from .config import get_model
-from .context import own_modules, relevant_excerpts
+from .context import identifiers, own_modules, relevant_excerpts
 from .gates import run_gates
 from .llm import LLM
 from .sandbox import Sandbox
-from .tools import format_results, research_query, search
+from .tools import docs_search, format_results, research_query, search
 
 TIER_ORDER = ["super", "ultra"]  # nano only triages
 STEPS = {"super": 14, "ultra": 18, "nano": 10}
@@ -28,6 +28,7 @@ MAX_REJECTS = 3      # rejected "finish" attempts before giving up on a tier
 MAX_SAME_ACTION = 4  # identical action repeated this many times means the model is stuck
 TOKEN_BUDGET_REMOTE = int(os.getenv("RUN_TOKEN_BUDGET_REMOTE", "300000"))  # real repositories have bigger files
 MAX_RESEARCH = int(os.getenv("TAVILY_MAX_PER_RUN", "4"))  # Tavily lookups per run (errors, related discussion, model requests)
+GROUNDING = os.getenv("TAVILY_GROUNDING", "1") == "1"  # look up the documented behaviour of the API being fixed (real repositories only)
 REMOTE_RESEARCH = os.getenv("TAVILY_CONTEXT", "1") == "1"  # look up related discussion for real remote repositories
 MAX_FEEDBACK = 12000  # characters of results returned to the model per reply (real repositories have huge files)
 MAX_ACTIONS = 3      # actions executed per model reply; each extra action saves a whole model call
@@ -40,7 +41,7 @@ Issue:
 
 Patch:
 {diff}
-
+{docs}
 Write a short pytest file that probes edge cases this patch might still get wrong. Use ONLY behaviour the issue states or that is obviously correct for the function (empty input, single element, boundaries, repeated or adjacent separators, input already in the target form, order independence). Do not invent new requirements. Reply with ONLY the Python source of the test file, no explanation and no markdown fences. Import from the modules shown in the patch."""
 
 SYSTEM = """You are Patchwright, an expert software engineer fixing a bug in a repository mounted at /work in a Linux sandbox (Python 3.11, bash, pytest installed; there is no git inside the sandbox).
@@ -252,10 +253,12 @@ def _verify(sb: Sandbox, act: dict) -> tuple[bool, str]:
     return True, "verified"
 
 
-def _edge_review(llm: LLM, tier: str, sb: Sandbox, issue: str) -> tuple[bool, str]:
+def _edge_review(llm: LLM, tier: str, sb: Sandbox, issue: str, docs: str = "") -> tuple[bool, str]:
     """One cheap extra call: a reviewer writes edge-case tests for the patch; the harness runs them."""
     try:
-        code = llm.chat(tier, [{"role": "user", "content": REVIEW_PROMPT.format(issue=issue, diff=sb.diff()[:6000])}],
+        ref = ("\nOfficial documentation found on the web (use it for the expected behaviour if it applies to this code):\n"
+               + docs[:1200] + "\n") if docs else ""
+        code = llm.chat(tier, [{"role": "user", "content": REVIEW_PROMPT.format(issue=issue, diff=sb.diff()[:6000], docs=ref)}],
                         temperature=0.1, max_tokens=2500)
     except Exception as e:  # noqa: BLE001
         return True, f"review skipped: {e}"
@@ -285,6 +288,18 @@ def _compact(msgs: list[dict]) -> list[dict]:
 
 
 NOISE_WORDS = {"demo", "bugfix", "fix", "test", "tests", "example", "sandbox", "copy", "fork", "playground", "repro"}
+
+
+def grounding_query(repo_url: str, issue: str) -> str:
+    """What the official documentation says about the thing that is broken: the names in the issue title, plus the library."""
+    names = [n for n, w in identifiers(issue).items() if w >= 3][:4]
+    if not names:
+        return ""
+    lib = ""
+    if repo_url.startswith("http"):  # the project's name without words like "demo" or "bugfix" (a fork's name is not the library's)
+        raw = repo_url.rstrip("/").split("/")[-1].removesuffix(".git")
+        lib = " ".join(w for w in re.split(r"[-_]", raw) if w and w.lower() not in NOISE_WORDS)
+    return f"python {lib} {' '.join(names)} documented behavior".replace("  ", " ")
 
 
 def related_query(repo_url: str, issue: str) -> str:
@@ -367,15 +382,15 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
         sources: list[dict] = []
         asked: set[str] = set()
 
-        def research(query: str, kind: str) -> str:
+        def research(query: str, kind: str, fn=search) -> str:
             """One Tavily lookup. The query and its sources are recorded for the interface and the pull-request text."""
             if not query or query in asked or len(asked) >= MAX_RESEARCH or not os.getenv("TAVILY_API_KEY"):
                 return ""
             asked.add(query)
-            results = search(query)
+            results = fn(query)
             emit({"type": "research", "kind": kind, "query": query,
                   "sources": [{"title": r["title"], "url": r["url"]} for r in results],
-                  "error": "" if results else (getattr(search, "last_error", "") or "no results")})
+                  "error": "" if results else (getattr(fn, "last_error", "") or "no results")})
             sources.extend({"query": query, "title": r["title"], "url": r["url"]} for r in results)
             return format_results(results) if results else ""
 
@@ -383,6 +398,12 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             ctx = research(related_query(repo_url, issue), "related discussion")
             if ctx:
                 hint += "\n\nPossibly related web results (Tavily; may be about a different problem):\n" + ctx[:1500]
+        docs_ctx = ""
+        if GROUNDING and repo_url.startswith("http"):  # the documented behaviour of what is being fixed, from official documentation only
+            docs_ctx = research(grounding_query(repo_url, issue), "documentation", docs_search)
+            if docs_ctx:
+                hint += ("\n\nOfficial documentation found by Tavily (use it for expected behaviour; "
+                         "ignore it if it is about something else):\n" + docs_ctx[:1200])
         own = own_modules(sb.host_dir / "repo")
         found = relevant_excerpts(sb.host_dir / "repo", issue)
         excerpts = ("Code most relevant to the issue (found by searching the repository for the names it mentions; "
@@ -397,7 +418,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             emit({"type": "verify", "tier": tier, "ok": ok, "auto": auto, "why": why[:1200]})
             if ok and EDGE_REVIEW and not state["reviewed"]:
                 state["reviewed"] = True
-                rok, rmsg = _edge_review(llm, tier, sb, issue)
+                rok, rmsg = _edge_review(llm, tier, sb, issue, docs_ctx)
                 emit({"type": "review", "tier": tier, "ok": rok, "why": rmsg[:1200]})
                 if not rok:
                     ok, why = False, ("An independent edge-case review of your fix found a failing case:\n" + rmsg +

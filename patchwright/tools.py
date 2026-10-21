@@ -63,6 +63,28 @@ def search(query: str, max_results: int = 3) -> list[dict]:
 
 search.last_error = ""
 
+# Official documentation only: used to ground the agent in the documented behaviour of the API it is fixing.
+DOC_DOMAINS = ["docs.python.org", "peps.python.org", "readthedocs.io", "readthedocs.org", "pypi.org", "numpy.org", "pandas.pydata.org",
+               "docs.pytest.org", "packaging.python.org", "docs.djangoproject.com", "flask.palletsprojects.com", "fastapi.tiangolo.com"]
+
+
+def docs_search(query: str, max_results: int = 3) -> list[dict]:
+    """Tavily restricted to official documentation, with no fallback to the open web (an unrelated page is worse than none)."""
+    key = os.getenv("TAVILY_API_KEY", "")
+    docs_search.last_error = ""
+    if not key or not query.strip():
+        return []
+    for attempt in range(3):
+        try:
+            return _call(key, query, max_results, DOC_DOMAINS)
+        except (httpx.HTTPError, ValueError) as e:
+            docs_search.last_error = f"{type(e).__name__}: {e}"[:200]
+            time.sleep(1.5 * (attempt + 1))
+    return []
+
+
+docs_search.last_error = ""
+
 
 def format_results(results: list[dict]) -> str:
     return "\n\n".join(f"{i['title']}\n{i['url']}\n{i['content']}" for i in results) or "[no results]"
