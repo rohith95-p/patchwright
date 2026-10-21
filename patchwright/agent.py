@@ -625,7 +625,9 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 if recent.count(sig) + 1 >= MAX_SAME_ACTION:
                     abort = f"the same action was repeated {MAX_SAME_ACTION} times"
                     break
-                loop_warn = "\n(You repeated an action you already tried; change your approach.)" if recent.count(sig) >= 1 else ""
+                loop_warn = ("\n(You repeated an action you already tried; change your approach. If a command failed because of shell quoting "
+                             "(nested quotes in python -c), do not retry it: create a small script file with the write tool and run that.)"
+                             if recent.count(sig) >= 1 else "")
                 left = n_steps - si - 1
                 if left <= 2:
                     loop_warn += (f"\n(Only {left} step(s) left. If your fix and your new test pass, call finish NOW "

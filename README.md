@@ -152,6 +152,8 @@ The toy benchmark is self-contained, so we also built **Patchwright-RW** (`cases
 
 **Result with the final code: 3 truly fixed out of 14 runs (2 batches of the same 7 cases, one run each), about $0.03 per fixed bug when it works and about $0.11-0.26 per run that fails.** `boltons-252` was fixed in both batches, `boltons-319` in one, and `toolz-602` was accepted by our harness but rejected by the upstream test in both. The raw runs, with every failure, are in `results/rw/`. This is a small, single-run sample: do not read 3/14 as a precise rate. It is far below the toy benchmark, and that gap is the honest picture of where the agent stands on real code.
 
+We also tried **Ultra only on NVIDIA's own hosted endpoint** (Super returns 404 on our account there, so the tiered setup cannot run): 0 truly fixed in the first 11 runs, then we stopped the run to save time; the raw runs are `results/rw/nvidia-ultra-only-partial.jsonl`. That fits the Nebius data, where Super alone made 16 of the 18 toy fixes.
+
 Getting from 0/7 to there is the useful part, because every step was a real-world failure the toy bugs never showed (all fixed in Patchwright itself):
 
 | What the first real-world runs exposed | The fix |

@@ -28,6 +28,7 @@ from patchwright.sandbox import Sandbox
 ROOT = Path(__file__).resolve().parent.parent
 CASES = ROOT / "cases"
 TIERS = {"tiered": ["super", "ultra"], "super": ["super"], "ultra": ["ultra"]}
+_CACHE_LOCK = threading.Lock()
 
 
 def sh(*a, cwd=None, check=True):
@@ -50,13 +51,13 @@ def load_cases(only=None) -> list[dict]:
 def pristine_copy(case: dict) -> str:
     """The repository at the parent of the fixing commit, as a fresh one-commit repo with no history to look the fix up in."""
     cache = Path(tempfile.gettempdir()) / "pw-rw-cache" / case["id"]
-    if not cache.exists():
-        cache.parent.mkdir(parents=True, exist_ok=True)
-        sh("git", "clone", "-q", f"https://github.com/{case['repo']}.git", str(cache))
     work = Path(tempfile.mkdtemp(prefix="pw-rwsrc-"))
-    sh("git", "-C", str(cache), "worktree", "prune")
-    sh("git", "-C", str(cache), "checkout", "-q", "-f", case["base_sha"])
-    shutil.copytree(cache, work / "repo", ignore=shutil.ignore_patterns(".git"))
+    with _CACHE_LOCK:  # several attempts at the same case share one cached clone
+        if not cache.exists():
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            sh("git", "clone", "-q", f"https://github.com/{case['repo']}.git", str(cache))
+        sh("git", "-C", str(cache), "checkout", "-q", "-f", case["base_sha"])
+        shutil.copytree(cache, work / "repo", ignore=shutil.ignore_patterns(".git"))
     sh("git", "init", "-q", cwd=work / "repo")
     sh("git", "add", "-A", cwd=work / "repo")
     sh("git", "-c", "user.name=rw", "-c", "user.email=rw@example.com", "commit", "-qm", "base", cwd=work / "repo")
