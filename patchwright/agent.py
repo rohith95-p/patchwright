@@ -60,13 +60,12 @@ FILE>>>
 
 To change an EXISTING file use edit, which replaces only the lines that must change:
 {"action":"edit","path":"<existing file>"}
-<<<OLD
+<<<<<<< SEARCH
 <the exact current text to replace, copied from the file, including indentation>
-OLD>>>
-<<<NEW
+=======
 <the replacement text>
-NEW>>>
-OLD must match the file exactly and be unique in it (add a surrounding line if it is not). NEVER rewrite an existing source file with write: you usually have seen only part of a large file, and a rewrite destroys the rest. Use write only for NEW files.
+>>>>>>> REPLACE
+The SEARCH text must match the file exactly and be unique in it (add a surrounding line if it is not). You may put several SEARCH/REPLACE blocks after one edit line; they are applied in order. NEVER rewrite an existing source file with write: you usually have seen only part of a large file, and a rewrite destroys the rest. Use write only for NEW files.
 
 To save steps you may put up to 3 actions in one reply, one after another; they run in order and you get every result back together. Batch what does not depend on a result you need to read first, for example: write your new test and run it; or write the fix and run the new test and the suite. If an action fails, the rest of the reply is skipped. Do not batch past something whose output you must see before deciding.
 {"action":"search","query":"<web search; only for unfamiliar library or error behaviour>"}
@@ -92,8 +91,10 @@ class Result:
 
 FILE_BLOCK = re.compile(
     r"<<<FILE[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*FILE\s*>{1,3}\s*\}?|(?=\r?\n\s*\{\s*\"action\")|\Z)", re.S)
+SR_BLOCK = re.compile(r"<{4,9}[ \t]*SEARCH[ \t]*\r?\n(.*?)\r?\n={4,9}[ \t]*\r?\n(.*?)\r?\n?[ \t]*>{4,9}[ \t]*REPLACE", re.S)
 OLD_BLOCK = re.compile(r"<<<OLD[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*OLD\s*>{1,3}\s*\}?|(?=\r?\n\s*<<<NEW)|\Z)", re.S)
 NEW_BLOCK = re.compile(r"<<<NEW[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*NEW\s*>{1,3}\s*\}?|(?=\r?\n\s*\{\s*\"action\")|\Z)", re.S)
+RUN_FALLBACK = re.compile(r'\{\s*"action"\s*:\s*"run"\s*,\s*"cmd"\s*:\s*"(.*)"\s*\}', re.S)
 NEXT_ACTION = re.compile(r'\{\s*"action"')
 
 
@@ -123,17 +124,30 @@ def _parse_actions(text: str) -> list[dict]:
             if block and (not nxt or block.start() < nxt.start()):
                 obj["content"] = block.group(1).rstrip("\n") + "\n"
                 pos = block.end()
-        if obj["action"] == "edit" and "old" not in obj:
-            old_b = OLD_BLOCK.search(text, pos)
+        if obj["action"] == "edit" and "edits" not in obj:
             nxt = NEXT_ACTION.search(text, pos)
-            if old_b and (not nxt or old_b.start() < nxt.start()):
-                new_b = NEW_BLOCK.search(text, old_b.end())
-                obj["old"] = old_b.group(1)
-                obj["new"] = new_b.group(1) if new_b else ""
-                pos = new_b.end() if new_b else old_b.end()
+            limit = nxt.start() if nxt else len(text)
+            pairs, cursor = [], pos
+            for blk in SR_BLOCK.finditer(text, pos):
+                if blk.start() >= limit:
+                    break
+                pairs.append((blk.group(1), blk.group(2)))
+                cursor = blk.end()
+            if not pairs:  # legacy OLD/NEW markers: only accepted when BOTH parts were read
+                old_b = OLD_BLOCK.search(text, pos)
+                if old_b and old_b.start() < limit:
+                    new_b = NEW_BLOCK.search(text, old_b.end())
+                    if new_b and new_b.start() < limit:
+                        pairs, cursor = [(old_b.group(1), new_b.group(1))], new_b.end()
+            obj["edits"] = pairs
+            pos = cursor
         if obj["action"] in ("read", "cat", "open", "view") and obj.get("path"):
             obj = {"action": "run", "cmd": "cat -- " + shlex.quote(str(obj["path"]))}
         acts.append(obj)
+    if not acts:
+        m = RUN_FALLBACK.search(text)
+        if m and m.group(1).strip():
+            return [{"action": "run", "cmd": m.group(1)}]
     if not acts and '"write"' in text and '\\"' in text:  # models sometimes double-escape quotes inside JSON strings
         fixed = text.replace('\\"', '\\"'[1:])
         if fixed != text:
@@ -264,7 +278,8 @@ def _detail(act: dict) -> str:
     if a == "write":
         return f"{act.get('path', '')}\n{str(act.get('content', ''))[:700]}"
     if a == "edit":
-        return f"{act.get('path', '')}\n- {str(act.get('old', ''))[:350]}\n+ {str(act.get('new', ''))[:350]}"
+        shown = "\n".join(f"- {o[:300]}\n+ {n[:300]}" for o, n in (act.get("edits") or [])[:2])
+        return f"{act.get('path', '')}\n{shown}"
     if a == "search":
         return act.get("query", "")
     return ""
@@ -414,7 +429,11 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                             stop = True
                     elif a == "edit":
                         try:
-                            obs = sb.edit(str(act.get("path") or ""), str(act.get("old") or ""), str(act.get("new") or ""))
+                            pairs = act.get("edits") or []
+                            if not pairs:
+                                raise ValueError("no complete SEARCH/REPLACE block was found, so nothing was changed. Use exactly: the JSON line, then "
+                                                 "<<<<<<< SEARCH, the exact old text, =======, the new text, >>>>>>> REPLACE")
+                            obs = "; ".join(sb.edit(str(act.get("path") or ""), old, new) for old, new in pairs)
                         except Exception as e:  # noqa: BLE001
                             obs = f"edit failed: {e}"
                             stop = True

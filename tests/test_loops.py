@@ -397,3 +397,29 @@ def test_a_failed_edit_is_reported_and_the_rest_of_the_reply_is_skipped(repo):
     events_of(llm, url, task["issue"], ["super"])
     assert any("edit failed" in m and "not found" in m and "skipped" in m for m in seen)
     assert not any("SHOULD_NOT_RUN" in m and "exit=0" in m for m in seen)
+
+
+def test_agent_fixes_a_bug_with_a_search_replace_edit(repo):
+    url, task = repo
+    reply = ('{"action":"write","path":"test_new.py"}\n<<<FILE\nfrom stats import average\n\ndef test_a():\n    assert average([2, 4, 6]) == 4\nFILE>>>\n'
+             '{"action":"edit","path":"stats.py"}\n<<<<<<< SEARCH\n(len(nums) - 1)\n=======\nlen(nums)\n>>>>>>> REPLACE\n'
+             '{"action":"finish","repro_test_cmd":"python -m pytest -q test_new.py","suite_cmd":"python -m pytest -q","summary":"off by one"}')
+    llm = FakeLLM([reply])
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert res.solved and llm.calls == 1 and "+    return sum(nums) / len(nums)" in res.diff
+
+
+def test_a_garbled_edit_changes_nothing_and_tells_the_model_how_to_retry(repo):
+    url, task = repo
+    seen = []
+    garbled = '{"action":"edit","path":"stats.py"}\n<<<OLD\nreturn sum\nNEW>>>\nreturn 0\nFILE>>>'
+    llm = FakeLLM([garbled, json.dumps(dict(action="run", cmd="cat stats.py"))])
+    orig = llm.chat
+
+    def spy(tier, messages, **kw):
+        seen.append(messages[-1]["content"])
+        return orig(tier, messages, **kw)
+    llm.chat = spy
+    events_of(llm, url, task["issue"], ["super"])
+    assert any("edit failed" in m and "SEARCH" in m for m in seen)
+    assert any("return sum(nums) / (len(nums) - 1)" in m for m in seen), "the file must be exactly as it was"

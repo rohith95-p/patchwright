@@ -282,14 +282,8 @@ def test_invented_read_action_becomes_a_safe_cat():
 
 
 # ---- the edit action: change a few lines of a big existing file, never rewrite it ----
-def test_edit_blocks_are_parsed_with_exact_text():
-    from patchwright.agent import _parse_actions
-    reply = ('{"action":"edit","path":"src/a.py"}\n<<<OLD\n        except IndexError:\n            raise KeyError("e")\nOLD>>>\n'
-             '<<<NEW\n        if not keys:\n            raise KeyError("e")\nNEW>>>\n{"action":"run","cmd":"pytest -q"}')
-    acts = _parse_actions(reply)
-    assert [a["action"] for a in acts] == ["edit", "run"]
-    assert acts[0]["old"] == '        except IndexError:\n            raise KeyError("e")'
-    assert acts[0]["new"] == '        if not keys:\n            raise KeyError("e")'
+def test_edit_blocks_placeholder():
+    pass
 
 
 def test_own_modules_and_research_skip_the_projects_own_names(tmp_path):
@@ -356,3 +350,36 @@ def test_a_large_existing_source_file_cannot_be_overwritten_by_a_short_rewrite(b
         assert sb.exec("cat mod.py")[1] == before, "the file must be untouched after a refused rewrite"
         sb.write("small.py", "z = 3\n")                      # small files may be rewritten
         sb.write("brand_new.py", "ok = True\n")              # new files are always fine
+
+
+def test_search_replace_edit_is_parsed_with_exact_text_and_several_blocks():
+    from patchwright.agent import _parse_actions
+    reply = ('{"action":"edit","path":"src/a.py"}\n<<<<<<< SEARCH\n        except IndexError:\n            raise KeyError("e")\n=======\n'
+             '        if not keys:\n            raise KeyError("e")\n>>>>>>> REPLACE\n<<<<<<< SEARCH\nold_line = 1\n=======\n>>>>>>> REPLACE\n'
+             '{"action":"run","cmd":"pytest -q"}')
+    acts = _parse_actions(reply)
+    assert [a["action"] for a in acts] == ["edit", "run"]
+    assert acts[0]["edits"] == [('        except IndexError:\n            raise KeyError("e")', '        if not keys:\n            raise KeyError("e")'),
+                                ("old_line = 1", "")]
+
+
+def test_a_garbled_edit_is_refused_so_nothing_is_ever_deleted():
+    """Real failure: the model closed OLD with NEW>>> and forgot <<<NEW, so the replacement was read as empty and a whole
+    method was deleted. An edit with no readable replacement must come back with no edits at all."""
+    from patchwright.agent import _parse_actions
+    garbled = ('{"action":"edit","path":"a.py"}\n<<<OLD\n    def popitem(self):\n        pass\nNEW>>>\n    def popitem(self):\n        return 1\nFILE>>>')
+    assert _parse_actions(garbled)[0]["edits"] == []
+    assert _parse_actions('{"action":"edit","path":"a.py"}\n<<<OLD\nonly old text\nOLD>>>')[0]["edits"] == []
+    assert _parse_actions('{"action":"edit","path":"a.py"}')[0]["edits"] == []
+
+
+def test_legacy_old_new_markers_still_work_when_both_parts_are_present():
+    from patchwright.agent import _parse_actions
+    assert _parse_actions('{"action":"edit","path":"a.py"}\n<<<OLD\nold\nOLD>>>\n<<<NEW\nnew\nNEW>>>')[0]["edits"] == [("old", "new")]
+
+
+def test_shell_command_with_unescaped_quotes_is_salvaged():
+    from patchwright.agent import _parse_actions
+    assert _parse_actions('{"action":"run","cmd":"grep -n "class RRCache" src/x.py"}') == [
+        {"action": "run", "cmd": 'grep -n "class RRCache" src/x.py'}]
+    assert _parse_actions('{"action":"run","cmd":"ls"}') == [{"action": "run", "cmd": "ls"}], "valid JSON is never reinterpreted"
