@@ -10,7 +10,7 @@ from pathlib import Path
 BASE_IMAGE = "python:3.11-slim"
 IMAGE = "patchwright-sandbox:py311"  # BASE_IMAGE plus pytest, built once so no run pays a ~40s pip install
 DOCKERFILE = f"FROM {BASE_IMAGE}\nRUN pip install --no-cache-dir pytest\n"
-MAX_OUT = 8000
+MAX_OUT = 6000
 _image_lock = threading.Lock()
 
 

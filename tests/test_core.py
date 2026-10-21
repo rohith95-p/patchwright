@@ -427,3 +427,23 @@ def test_related_query_is_project_name_plus_issue_title():
     q = related_query("https://github.com/someone/cachetools-bugfix-demo.git", "RRCache.popitem() raises the wrong error\n\nlong body here")
     assert q == "cachetools python RRCache.popitem() raises the wrong error"
     assert "someone" not in q and "demo" not in q and "long body" not in q
+
+
+# ---- edits written as JSON fields, under whatever names the model picks ----
+@pytest.mark.parametrize("fields", [
+    {"old": "a", "new": "b"}, {"old_string": "a", "new_string": "b"}, {"old_text": "a", "new_text": "b"},
+    {"search": "a", "replace": "b"}, {"find": "a", "replacement": "b"},
+    {"<<<<<<< SEARCH": "a", "=======": "x", ">>>>>>> REPLACE": "b"},     # the markers used as keys: seen from a real model
+])
+def test_edit_given_as_json_fields_is_understood(fields):
+    import json
+    from patchwright.agent import _parse_actions
+    assert _parse_actions(json.dumps({"action": "edit", "path": "a.py", **fields}))[0]["edits"] == [("a", "b")]
+
+
+def test_edit_fields_never_guess_a_deletion():
+    import json
+    from patchwright.agent import _parse_actions
+    assert _parse_actions(json.dumps({"action": "edit", "path": "a.py", "old": "a"}))[0]["edits"] == []
+    assert _parse_actions(json.dumps({"action": "edit", "path": "a.py", "new": "b"}))[0]["edits"] == []
+    assert _parse_actions(json.dumps({"action": "edit", "path": "a.py", "old": "a", "new": ""}))[0]["edits"] == [("a", "")]

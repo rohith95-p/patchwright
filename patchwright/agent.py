@@ -28,6 +28,7 @@ MAX_SAME_ACTION = 4  # identical action repeated this many times means the model
 TOKEN_BUDGET_REMOTE = int(os.getenv("RUN_TOKEN_BUDGET_REMOTE", "300000"))  # real repositories have bigger files
 MAX_RESEARCH = int(os.getenv("TAVILY_MAX_PER_RUN", "4"))  # Tavily lookups per run (errors, related discussion, model requests)
 REMOTE_RESEARCH = os.getenv("TAVILY_CONTEXT", "1") == "1"  # look up related discussion for real remote repositories
+MAX_FEEDBACK = 12000  # characters of results returned to the model per reply (real repositories have huge files)
 MAX_ACTIONS = 3      # actions executed per model reply; each extra action saves a whole model call
 KEEP_FULL = 6        # most recent messages kept verbatim; older ones are clipped to save tokens
 
@@ -73,6 +74,8 @@ To save steps you may put up to 3 actions in one reply, one after another; they 
 
 Your new test file must have several assertions, not only the example from the issue: the issue's example, the boundary cases around it (empty input, single element, the smallest and largest valid values, repeated or adjacent separators, values already in the target form), and the general rule the issue implies. Before you finish, re-read your fix and ask what input would still break it; add that input to your test.
 
+Read files in small ranges, never whole large files: use grep -n, or sed -n 'START,ENDp' file (about 60 lines at a time). The code most relevant to the issue is already given to you above, so start from it.
+
 Rules: install dependencies with pip if needed. Never delete tests. Never modify existing test files. Think about edge cases (empty input, boundaries, types) the issue implies. The harness will independently revert your source change to confirm your test fails without it, so your test must truly capture the bug. Be efficient; you have a limited number of steps."""
 
 
@@ -96,6 +99,25 @@ OLD_BLOCK = re.compile(r"<<<OLD[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*OLD\s*>{1,3}\s*\}?
 NEW_BLOCK = re.compile(r"<<<NEW[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*NEW\s*>{1,3}\s*\}?|(?=\r?\n\s*\{\s*\"action\")|\Z)", re.S)
 RUN_FALLBACK = re.compile(r'\{\s*"action"\s*:\s*"run"\s*,\s*"cmd"\s*:\s*"(.*)"\s*\}', re.S)
 NEXT_ACTION = re.compile(r'\{\s*"action"')
+
+
+_OLD_KEYS = ("old", "old_text", "old_string", "old_str", "search", "find", "before", "original")
+_NEW_KEYS = ("new", "new_text", "new_string", "new_str", "replace", "replacement", "after", "updated")
+
+
+def _edit_from_fields(obj: dict) -> list[tuple[str, str]]:
+    """An edit written as JSON fields. Models use many names (old/new, search/replace, old_string/new_string, even
+    the block markers themselves as keys), so match them loosely. Both parts must be present: never guess a deletion."""
+    old = new = None
+    for k, v in obj.items():
+        if not isinstance(v, str):
+            continue
+        key = k.lower().strip("<>= ")
+        if old is None and (key in _OLD_KEYS or "search" in key):
+            old = v
+        elif new is None and (key in _NEW_KEYS or "replace" in key):
+            new = v
+    return [(old, new)] if old and new is not None else []
 
 
 def _parse_actions(text: str) -> list[dict]:
@@ -124,6 +146,8 @@ def _parse_actions(text: str) -> list[dict]:
             if block and (not nxt or block.start() < nxt.start()):
                 obj["content"] = block.group(1).rstrip("\n") + "\n"
                 pos = block.end()
+        if obj["action"] == "edit" and "edits" not in obj and _edit_from_fields(obj):
+            obj["edits"] = _edit_from_fields(obj)
         if obj["action"] == "edit" and "edits" not in obj:
             nxt = NEXT_ACTION.search(text, pos)
             limit = nxt.start() if nxt else len(text)
@@ -485,7 +509,10 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 if rejects >= MAX_REJECTS:
                     abort = f"{rejects} rejected finish attempts"
                     break
-                msgs.append({"role": "user", "content": "\n".join(parts) + loop_warn})
+                feedback = "\n".join(parts)
+                if len(feedback) > MAX_FEEDBACK:
+                    feedback = feedback[:MAX_FEEDBACK // 2] + "\n...[clipped: read smaller ranges]...\n" + feedback[-MAX_FEEDBACK // 2:]
+                msgs.append({"role": "user", "content": feedback + loop_warn})
             if abort:
                 emit({"type": "abort", "tier": tier, "reason": abort})
             auto = _auto_finish_act(sb)  # the model may have a working fix but never said "finish"

@@ -1,0 +1,373 @@
+{
+ "case": "tkem/cachetools#423",
+ "strategy": "tiered",
+ "solved": false,
+ "upstream_test_passes": null,
+ "tier": "ultra",
+ "steps": 21,
+ "seconds": 241.5,
+ "model_calls": 22,
+ "tokens": 327794,
+ "cost_usd": 0.2879,
+ "summary": "stopped: token budget reached",
+ "diff": "",
+ "sources": [
+  {
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "title": "Ignore KeyError in cache \u00b7 Issue #231 \u00b7 tkem/cachetools \u00b7 GitHub",
+   "url": "https://github.com/tkem/cachetools/issues/231"
+  },
+  {
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "title": "KeyError on value assignment \u00b7 Issue #90 \u00b7 tkem/cachetools \u00b7 GitHub",
+   "url": "https://github.com/tkem/cachetools/issues/90"
+  },
+  {
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "title": "cachetools \u00b7 PyPI",
+   "url": "https://pypi.python.org/pypi/cachetools"
+  }
+ ],
+ "events": [
+  {
+   "type": "start",
+   "repo": "https://github.com/rohith95-p/cachetools-bugfix-demo.git",
+   "tiers": [
+    "super",
+    "ultra"
+   ],
+   "models": {
+    "nano": "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B",
+    "super": "nvidia/nemotron-3-super-120b-a12b",
+    "ultra": "nvidia/Nemotron-3-Ultra-550b-a55b"
+   },
+   "t": 0.0
+  },
+  {
+   "type": "research",
+   "kind": "related discussion",
+   "query": "cachetools python RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError",
+   "sources": [
+    {
+     "title": "Ignore KeyError in cache \u00b7 Issue #231 \u00b7 tkem/cachetools \u00b7 GitHub",
+     "url": "https://github.com/tkem/cachetools/issues/231"
+    },
+    {
+     "title": "KeyError on value assignment \u00b7 Issue #90 \u00b7 tkem/cachetools \u00b7 GitHub",
+     "url": "https://github.com/tkem/cachetools/issues/90"
+    },
+    {
+     "title": "cachetools \u00b7 PyPI",
+     "url": "https://pypi.python.org/pypi/cachetools"
+    }
+   ],
+   "error": "",
+   "t": 17.7
+  },
+  {
+   "type": "tier_start",
+   "tier": "super",
+   "model": "nvidia/nemotron-3-super-120b-a12b",
+   "t": 17.8
+  },
+  {
+   "type": "bad_reply",
+   "tier": "super",
+   "head": "",
+   "t": 47.2
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "edit",
+   "detail": "src/cachetools/__init__.py\n",
+   "obs": "edit failed: no complete SEARCH/REPLACE block was found, so nothing was changed. Use exactly: the JSON line, then <<<<<<< SEARCH, the exact old text, =======, the new text, >>>>>>> REPLACE",
+   "t": 58.0
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "edit",
+   "detail": "src/cachetools/__init__.py\n",
+   "obs": "edit failed: no complete SEARCH/REPLACE block was found, so nothing was changed. Use exactly: the JSON line, then <<<<<<< SEARCH, the exact old text, =======, the new text, >>>>>>> REPLACE",
+   "t": 69.0
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "cat src/cachetools/__init__.py",
+   "obs": "exit=0\n\"\"\"Extensible memoizing collections and decorators.\"\"\"\n\n__all__ = (\n    \"Cache\",\n    \"FIFOCache\",\n    \"LFUCache\",\n    \"LRUCache\",\n    \"RRCache\",\n    \"TLRUCache\",\n    \"TTLCache\",\n    \"cached\",\n    \"cachedmethod\",\n)\n\n__version__ = \"7.2.0\"\n\nimport collections\nimport collections.abc\nimport functools\nimport heapq\nimport random\nimport time\n\nfrom . import keys\n\n\nclass _DefaultSize:\n    \"\"\"A minimal \"fake\" dict that returns a constant size 1 for any key.\"\"\"\n\n    __slots__ = ()\n\n    def __getitem__(self, _key):\n        return 1\n\n    def __setitem__(self, _key, _value):\n        pass\n\n    def pop(self, _key):\n        return 1\n\n    def clear(self):\n        pass\n\n\nclass Cache(collections.abc.MutableMapping):\n    \"\"\"Mutable mapping to serve as a simple cache or cache base class.\"\"\"\n\n    __marker = object()\n\n    __size = _DefaultSize()\n\n    def __init__(self, maxsize, getsizeof=None):\n        if maxsize < 0:\n            raise ValueError(\"maxsize must be non-negative\")\n        if getsizeof:\n            self.getsizeof = getsizeof\n        if self.getsizeof is not Cache.getsizeof:\n            self.__size = {}\n        self.__data = {}\n        self.__currsize = 0\n        self.__maxsize = maxsize\n\n    def __repr__(self):\n        return \"%s(%s, maxsize=%r, currsize=%r)\" % (\n            type(self).__name__,\n            repr(self.__data),\n            self.__maxsize,\n            self.__currsize,\n        )\n\n    def __getitem__(self, key):\n        try:\n            return self.__data[key]\n        ",
+   "t": 78.1
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "grep -n 'class RRCache' src/cachetools/__init__.py",
+   "obs": "exit=0\n329:class RRCache(Cache):\n",
+   "t": 79.4
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "sed -n '329,400p' src/cachetools/__init__.py",
+   "obs": "exit=0\nclass RRCache(Cache):\n    \"\"\"Random Replacement (RR) cache implementation.\"\"\"\n\n    def __init__(self, maxsize, choice=random.choice, getsizeof=None):\n        Cache.__init__(self, maxsize, getsizeof)\n        self.__choice = choice\n        self.__index = {}\n        self.__keys = []\n\n    @property\n    def choice(self):\n        \"\"\"The `choice` function used by the cache.\"\"\"\n        return self.__choice\n\n    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n        cache_setitem(self, key, value)\n        if key not in self.__index:\n            self.__index[key] = len(self.__keys)\n            self.__keys.append(key)\n\n    def __delitem__(self, key, cache_delitem=Cache.__delitem__):\n        cache_delitem(self, key)\n        index = self.__index.pop(key)\n        if index != len(self.__keys) - 1:\n            last = self.__keys[-1]\n            self.__keys[index] = last\n            self.__index[last] = index\n        self.__keys.pop()\n\n    def popitem(self):\n        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n        try:\n            key = self.__choice(self.__keys)\n        except IndexError:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        else:\n            return (key, self.pop(key))\n\n    def clear(self):\n        Cache.clear(self)\n        self.__index.clear()\n        del self.__keys[:]\n\n\nclass _TimedCache(Cache):\n    \"\"\"Base class for time aware cache implementations.\"\"\"\n\n    class _Timer:\n        def __init__(self, time",
+   "t": 80.7
+  },
+  {
+   "type": "bad_reply",
+   "tier": "super",
+   "head": "\n{\n  \"action\": \"edit\",\n  \"path\": \"src/cachetools/__init__.py\",\n  \"<<<<<<< SEARCH\": \"    def popitem(self):\\n        \\\"\\\"\\\"Remove and return a random `(key, value)` pair.\\\"\\\"\\\"\\n        try:\\n         ",
+   "t": 90.5
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "write",
+   "detail": "tests/test_rr_popitem_empty.py\nimport pytest\nimport cachetools\n\ndef test_rr_popitem_empty_default_choice():\n    cache = cachetools.RRCache(maxsize=2)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_empty_choice_min():\n    cache = cachetools.RRCache(maxsize=2, choice=min)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_empty_choice_max():\n    cache = cachetools.RRCache(maxsize=2, choice=max)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_empty_c",
+   "obs": "wrote tests/test_rr_popitem_empty.py",
+   "t": 100.4
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest tests/test_rr_popitem_empty.py -v",
+   "obs": "exit=1\n============================= test session starts ==============================\nplatform linux -- Python 3.11.17, pytest-9.1.1, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /work\nconfigfile: pyproject.toml\ncollecting ... collected 6 items\n\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_default_choice FAILED [ 16%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_choice_min FAILED  [ 33%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_choice_max FAILED  [ 50%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_choice_next_iter FAILED [ 66%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_nonempty FAILED          [ 83%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_after_clear FAILED [100%]\n\n=================================== FAILURES ===================================\n_____________________ test_rr_popitem_empty_default_choice _____________________\n\n    def test_rr_popitem_empty_default_choice():\n        cache = cachetools.RRCache(maxsize=2)\n        with pytest.raises(KeyError) as excinfo:\n            cache.popitem()\n>       assert str(excinfo.value) == \"RRCache is empty\"\nE       assert \"'RRCache is empty'\" == 'RRCache is empty'\nE         \nE         - RRCache is empty\nE         + 'RRCache is empty'\nE         ? +                +\n\ntests/test_rr_popitem_empty.py:8: AssertionError\n_______________________ test_rr_popitem_empty_choice_min _______________________\n\n    def test_rr_popitem_empty_choice_min():\n        cac",
+   "t": 106.1
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "sed -n '355,370p' src/cachetools/__init__.py",
+   "obs": "exit=0\n            self.__index[last] = index\n        self.__keys.pop()\n\n    def popitem(self):\n        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n        try:\n            key = self.__choice(self.__keys)\n        except IndexError:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        else:\n            return (key, self.pop(key))\n\n    def clear(self):\n        Cache.clear(self)\n        self.__index.clear()\n        del self.__keys[:]\n",
+   "t": 108.4
+  },
+  {
+   "type": "bad_reply",
+   "tier": "super",
+   "head": "\n{\n  \"action\": \"edit\",\n  \"path\": \"src/cachetools/__init__.py\",\n  \"<<<<<<< SEARCH\": \"    def popitem(self):\\n        \\\"\\\"\\\"Remove and return a random `(key, value)` pair.\\\"\\\"\\\"\\n        try:\\n         ",
+   "t": 121.8
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "python -m pytest tests/test_rr_popitem_empty.py -v",
+   "obs": "exit=1\n============================= test session starts ==============================\nplatform linux -- Python 3.11.17, pytest-9.1.1, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /work\nconfigfile: pyproject.toml\ncollecting ... collected 6 items\n\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_default_choice FAILED [ 16%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_choice_min FAILED  [ 33%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_choice_max FAILED  [ 50%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_choice_next_iter FAILED [ 66%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_nonempty FAILED          [ 83%]\ntests/test_rr_popitem_empty.py::test_rr_popitem_empty_after_clear FAILED [100%]\n\n=================================== FAILURES ===================================\n_____________________ test_rr_popitem_empty_default_choice _____________________\n\n    def test_rr_popitem_empty_default_choice():\n        cache = cachetools.RRCache(maxsize=2)\n        with pytest.raises(KeyError) as excinfo:\n            cache.popitem()\n>       assert str(excinfo.value) == \"RRCache is empty\"\nE       assert \"'RRCache is empty'\" == 'RRCache is empty'\nE         \nE         - RRCache is empty\nE         + 'RRCache is empty'\nE         ? +                +\n\ntests/test_rr_popitem_empty.py:8: AssertionError\n_______________________ test_rr_popitem_empty_choice_min _______________________\n\n    def test_rr_popitem_empty_choice_min():\n        cac",
+   "t": 129.7
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "cat tests/test_rr_popitem_empty.py",
+   "obs": "exit=0\nimport pytest\nimport cachetools\n\ndef test_rr_popitem_empty_default_choice():\n    cache = cachetools.RRCache(maxsize=2)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_empty_choice_min():\n    cache = cachetools.RRCache(maxsize=2, choice=min)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_empty_choice_max():\n    cache = cachetools.RRCache(maxsize=2, choice=max)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_empty_choice_next_iter():\n    cache = cachetools.RRCache(maxsize=2, choice=next)\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_nonempty():\n    cache = cachetools.RRCache(maxsize=2, choice=min)\n    cache[1] = 'one'\n    cache[2] = 'two'\n    # Should remove and return one item\n    key, value = cache.popitem()\n    assert key in (1, 2)\n    assert value in ('one', 'two')\n    # Now one item left\n    key2, value2 = cache.popitem()\n    assert key2 not in (key,)  # the other key\n    assert value2 not in (value,)\n    # Now empty\n    with pytest.raises(KeyError) as excinfo:\n        cache.popitem()\n    assert str(excinfo.value) == \"RRCache is empty\"\n\ndef test_rr_popitem_empty_after_clear():\n    cache = cache",
+   "t": 139.3
+  },
+  {
+   "type": "step",
+   "tier": "super",
+   "action": "run",
+   "detail": "sed -n '355,375p' src/cachetools/__init__.py",
+   "obs": "exit=0\n            self.__index[last] = index\n        self.__keys.pop()\n\n    def popitem(self):\n        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n        try:\n            key = self.__choice(self.__keys)\n        except IndexError:\n            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n        else:\n            return (key, self.pop(key))\n\n    def clear(self):\n        Cache.clear(self)\n        self.__index.clear()\n        del self.__keys[:]\n\n\nclass _TimedCache(Cache):\n    \"\"\"Base class for time aware cache implementations.\"\"\"\n\n",
+   "t": 141.7
+  },
+  {
+   "type": "verify",
+   "tier": "super",
+   "ok": false,
+   "auto": true,
+   "why": "No change to existing source files was found; a fix must modify the code.",
+   "t": 141.9
+  },
+  {
+   "type": "escalate",
+   "from": "super",
+   "to": "ultra",
+   "t": 141.9
+  },
+  {
+   "type": "tier_start",
+   "tier": "ultra",
+   "model": "nvidia/Nemotron-3-Ultra-550b-a55b",
+   "t": 142.0
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | head -400",
+   "obs": "exit=0\n     1\t\"\"\"Extensible memoizing collections and decorators.\"\"\"\n     2\t\n     3\t__all__ = (\n     4\t    \"Cache\",\n     5\t    \"FIFOCache\",\n     6\t    \"LFUCache\",\n     7\t    \"LRUCache\",\n     8\t    \"RRCache\",\n     9\t    \"TLRUCache\",\n    10\t    \"TTLCache\",\n    11\t    \"cached\",\n    12\t    \"cachedmethod\",\n    13\t)\n    14\t\n    15\t__version__ = \"7.2.0\"\n    16\t\n    17\timport collections\n    18\timport collections.abc\n    19\timport functools\n    20\timport heapq\n    21\timport random\n    22\timport time\n    23\t\n    24\tfrom . import keys\n    25\t\n    26\t\n    27\tclass _DefaultSize:\n    28\t    \"\"\"A minimal \"fake\" dict that returns a constant size 1 for any key.\"\"\"\n    29\t\n    30\t    __slots__ = ()\n    31\t\n    32\t    def __getitem__(self, _key):\n    33\t        return 1\n    34\t\n    35\t    def __setitem__(self, _key, _value):\n    36\t        pass\n    37\t\n    38\t    def pop(self, _key):\n    39\t        return 1\n    40\t\n    41\t    def clear(self):\n    42\t        pass\n    43\t\n    44\t\n    45\tclass Cache(collections.abc.MutableMapping):\n    46\t    \"\"\"Mutable mapping to serve as a simple cache or cache base class.\"\"\"\n    47\t\n    48\t    __marker = object()\n    49\t\n    50\t    __size = _DefaultSize()\n    51\t\n    52\t    def __init__(self, maxsize, getsizeof=None):\n    53\t        if maxsize < 0:\n    54\t            raise ValueError(\"maxsize must be non-negative\")\n    55\t        if getsizeof:\n    56\t            self.getsizeof = getsizeof\n    57\t        if self.getsizeof is not Cache.getsizeof:\n    58\t        ",
+   "t": 152.1
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | sed -n '330,400p'",
+   "obs": "exit=0\n   330\t    \"\"\"Random Replacement (RR) cache implementation.\"\"\"\n   331\t\n   332\t    def __init__(self, maxsize, choice=random.choice, getsizeof=None):\n   333\t        Cache.__init__(self, maxsize, getsizeof)\n   334\t        self.__choice = choice\n   335\t        self.__index = {}\n   336\t        self.__keys = []\n   337\t\n   338\t    @property\n   339\t    def choice(self):\n   340\t        \"\"\"The `choice` function used by the cache.\"\"\"\n   341\t        return self.__choice\n   342\t\n   343\t    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n   344\t        cache_setitem(self, key, value)\n   345\t        if key not in self.__index:\n   346\t            self.__index[key] = len(self.__keys)\n   347\t            self.__keys.append(key)\n   348\t\n   349\t    def __delitem__(self, key, cache_delitem=Cache.__delitem__):\n   350\t        cache_delitem(self, key)\n   351\t        index = self.__index.pop(key)\n   352\t        if index != len(self.__keys) - 1:\n   353\t            last = self.__keys[-1]\n   354\t            self.__keys[index] = last\n   355\t            self.__index[last] = index\n   356\t        self.__keys.pop()\n   357\t\n   358\t    def popitem(self):\n   359\t        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n   360\t        try:\n   361\t            key = self.__choice(self.__keys)\n   362\t        except IndexError:\n   363\t            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n   364\t        else:\n   365\t            return (key, self.pop(key))\n   366\t\n   ",
+   "t": 152.2
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_rr.py",
+   "obs": "exit=0\n     1\timport random\n     2\timport unittest\n     3\t\n     4\tfrom cachetools import RRCache\n     5\t\n     6\tfrom . import CacheTestMixin\n     7\t\n     8\t\n     9\tclass RRCacheTest(unittest.TestCase, CacheTestMixin):\n    10\t    Cache = RRCache\n    11\t\n    12\t    def test_rr(self):\n    13\t        cache = RRCache[int, int](maxsize=2, choice=min)\n    14\t        self.assertEqual(min, cache.choice)\n    15\t\n    16\t        cache[1] = 1\n    17\t        cache[2] = 2\n    18\t        cache[3] = 3\n    19\t\n    20\t        self.assertEqual(2, len(cache))\n    21\t        self.assertEqual(2, cache[2])\n    22\t        self.assertEqual(3, cache[3])\n    23\t        self.assertNotIn(1, cache)\n    24\t\n    25\t        cache[0] = 0\n    26\t        self.assertEqual(2, len(cache))\n    27\t        self.assertEqual(0, cache[0])\n    28\t        self.assertEqual(3, cache[3])\n    29\t        self.assertNotIn(2, cache)\n    30\t\n    31\t        cache[4] = 4\n    32\t        self.assertEqual(2, len(cache))\n    33\t        self.assertEqual(3, cache[3])\n    34\t        self.assertEqual(4, cache[4])\n    35\t        self.assertNotIn(0, cache)\n    36\t\n    37\t    def test_rr_getsizeof(self):\n    38\t        cache = RRCache[int, int](maxsize=3, choice=min, getsizeof=lambda x: x)\n    39\t\n    40\t        cache[1] = 1\n    41\t        cache[2] = 2\n    42\t\n    43\t        self.assertEqual(len(cache), 2)\n    44\t        self.assertEqual(cache[1], 1)\n    45\t        self.assertEqual(cache[2], 2)\n    46\t\n    47\t        cache[3] = 3\n    48\t\n    4",
+   "t": 152.3
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_rr.py",
+   "obs": "exit=0\n     1\timport random\n     2\timport unittest\n     3\t\n     4\tfrom cachetools import RRCache\n     5\t\n     6\tfrom . import CacheTestMixin\n     7\t\n     8\t\n     9\tclass RRCacheTest(unittest.TestCase, CacheTestMixin):\n    10\t    Cache = RRCache\n    11\t\n    12\t    def test_rr(self):\n    13\t        cache = RRCache[int, int](maxsize=2, choice=min)\n    14\t        self.assertEqual(min, cache.choice)\n    15\t\n    16\t        cache[1] = 1\n    17\t        cache[2] = 2\n    18\t        cache[3] = 3\n    19\t\n    20\t        self.assertEqual(2, len(cache))\n    21\t        self.assertEqual(2, cache[2])\n    22\t        self.assertEqual(3, cache[3])\n    23\t        self.assertNotIn(1, cache)\n    24\t\n    25\t        cache[0] = 0\n    26\t        self.assertEqual(2, len(cache))\n    27\t        self.assertEqual(0, cache[0])\n    28\t        self.assertEqual(3, cache[3])\n    29\t        self.assertNotIn(2, cache)\n    30\t\n    31\t        cache[4] = 4\n    32\t        self.assertEqual(2, len(cache))\n    33\t        self.assertEqual(3, cache[3])\n    34\t        self.assertEqual(4, cache[4])\n    35\t        self.assertNotIn(0, cache)\n    36\t\n    37\t    def test_rr_getsizeof(self):\n    38\t        cache = RRCache[int, int](maxsize=3, choice=min, getsizeof=lambda x: x)\n    39\t\n    40\t        cache[1] = 1\n    41\t        cache[2] = 2\n    42\t\n    43\t        self.assertEqual(len(cache), 2)\n    44\t        self.assertEqual(cache[1], 1)\n    45\t        self.assertEqual(cache[2], 2)\n    46\t\n    47\t        cache[3] = 3\n    48\t\n    4",
+   "t": 164.9
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_fifo.py",
+   "obs": "exit=0\n     1\timport unittest\n     2\t\n     3\tfrom cachetools import FIFOCache\n     4\t\n     5\tfrom . import CacheTestMixin\n     6\t\n     7\t\n     8\tclass FIFOCacheTest(unittest.TestCase, CacheTestMixin):\n     9\t    Cache = FIFOCache\n    10\t\n    11\t    def test_fifo(self):\n    12\t        cache = FIFOCache[int, int](maxsize=2)\n    13\t\n    14\t        cache[1] = 1\n    15\t        cache[2] = 2\n    16\t        cache[3] = 3\n    17\t\n    18\t        self.assertEqual(len(cache), 2)\n    19\t        self.assertEqual(cache[2], 2)\n    20\t        self.assertEqual(cache[3], 3)\n    21\t        self.assertNotIn(1, cache)\n    22\t\n    23\t        cache[2]\n    24\t        cache[4] = 4\n    25\t        self.assertEqual(len(cache), 2)\n    26\t        self.assertEqual(cache[3], 3)\n    27\t        self.assertEqual(cache[4], 4)\n    28\t        self.assertNotIn(2, cache)\n    29\t\n    30\t        cache[5] = 5\n    31\t        self.assertEqual(len(cache), 2)\n    32\t        self.assertEqual(cache[4], 4)\n    33\t        self.assertEqual(cache[5], 5)\n    34\t        self.assertNotIn(3, cache)\n    35\t\n    36\t    def test_fifo_getsizeof(self):\n    37\t        cache = FIFOCache[int, int](maxsize=3, getsizeof=lambda x: x)\n    38\t\n    39\t        cache[1] = 1\n    40\t        cache[2] = 2\n    41\t\n    42\t        self.assertEqual(len(cache), 2)\n    43\t        self.assertEqual(cache[1], 1)\n    44\t        self.assertEqual(cache[2], 2)\n    45\t\n    46\t        cache[3] = 3\n    47\t\n    48\t        self.assertEqual(len(cache), 1)\n    49\t        s",
+   "t": 165.0
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_lru.py",
+   "obs": "exit=0\n     1\timport unittest\n     2\t\n     3\tfrom cachetools import LRUCache\n     4\t\n     5\tfrom . import CacheTestMixin\n     6\t\n     7\t\n     8\tclass LRUCacheTest(unittest.TestCase, CacheTestMixin):\n     9\t    Cache = LRUCache\n    10\t\n    11\t    def test_lru(self):\n    12\t        cache = LRUCache[int, int](maxsize=2)\n    13\t\n    14\t        cache[1] = 1\n    15\t        cache[2] = 2\n    16\t        cache[3] = 3\n    17\t\n    18\t        self.assertEqual(len(cache), 2)\n    19\t        self.assertEqual(cache[2], 2)\n    20\t        self.assertEqual(cache[3], 3)\n    21\t        self.assertNotIn(1, cache)\n    22\t\n    23\t        cache[2]\n    24\t        cache[4] = 4\n    25\t        self.assertEqual(len(cache), 2)\n    26\t        self.assertEqual(cache[2], 2)\n    27\t        self.assertEqual(cache[4], 4)\n    28\t        self.assertNotIn(3, cache)\n    29\t\n    30\t        cache[5] = 5\n    31\t        self.assertEqual(len(cache), 2)\n    32\t        self.assertEqual(cache[4], 4)\n    33\t        self.assertEqual(cache[5], 5)\n    34\t        self.assertNotIn(2, cache)\n    35\t\n    36\t    def test_lru_getsizeof(self):\n    37\t        cache = LRUCache[int, int](maxsize=3, getsizeof=lambda x: x)\n    38\t\n    39\t        cache[1] = 1\n    40\t        cache[2] = 2\n    41\t\n    42\t        self.assertEqual(len(cache), 2)\n    43\t        self.assertEqual(cache[1], 1)\n    44\t        self.assertEqual(cache[2], 2)\n    45\t\n    46\t        cache[3] = 3\n    47\t\n    48\t        self.assertEqual(len(cache), 1)\n    49\t        self.ass",
+   "t": 165.2
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | sed -n '330,380p'",
+   "obs": "exit=0\n   330\t    \"\"\"Random Replacement (RR) cache implementation.\"\"\"\n   331\t\n   332\t    def __init__(self, maxsize, choice=random.choice, getsizeof=None):\n   333\t        Cache.__init__(self, maxsize, getsizeof)\n   334\t        self.__choice = choice\n   335\t        self.__index = {}\n   336\t        self.__keys = []\n   337\t\n   338\t    @property\n   339\t    def choice(self):\n   340\t        \"\"\"The `choice` function used by the cache.\"\"\"\n   341\t        return self.__choice\n   342\t\n   343\t    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n   344\t        cache_setitem(self, key, value)\n   345\t        if key not in self.__index:\n   346\t            self.__index[key] = len(self.__keys)\n   347\t            self.__keys.append(key)\n   348\t\n   349\t    def __delitem__(self, key, cache_delitem=Cache.__delitem__):\n   350\t        cache_delitem(self, key)\n   351\t        index = self.__index.pop(key)\n   352\t        if index != len(self.__keys) - 1:\n   353\t            last = self.__keys[-1]\n   354\t            self.__keys[index] = last\n   355\t            self.__index[last] = index\n   356\t        self.__keys.pop()\n   357\t\n   358\t    def popitem(self):\n   359\t        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n   360\t        try:\n   361\t            key = self.__choice(self.__keys)\n   362\t        except IndexError:\n   363\t            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n   364\t        else:\n   365\t            return (key, self.pop(key))\n   366\t\n   ",
+   "t": 187.3
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_fifo.py | head -150",
+   "obs": "exit=0\n     1\timport unittest\n     2\t\n     3\tfrom cachetools import FIFOCache\n     4\t\n     5\tfrom . import CacheTestMixin\n     6\t\n     7\t\n     8\tclass FIFOCacheTest(unittest.TestCase, CacheTestMixin):\n     9\t    Cache = FIFOCache\n    10\t\n    11\t    def test_fifo(self):\n    12\t        cache = FIFOCache[int, int](maxsize=2)\n    13\t\n    14\t        cache[1] = 1\n    15\t        cache[2] = 2\n    16\t        cache[3] = 3\n    17\t\n    18\t        self.assertEqual(len(cache), 2)\n    19\t        self.assertEqual(cache[2], 2)\n    20\t        self.assertEqual(cache[3], 3)\n    21\t        self.assertNotIn(1, cache)\n    22\t\n    23\t        cache[2]\n    24\t        cache[4] = 4\n    25\t        self.assertEqual(len(cache), 2)\n    26\t        self.assertEqual(cache[3], 3)\n    27\t        self.assertEqual(cache[4], 4)\n    28\t        self.assertNotIn(2, cache)\n    29\t\n    30\t        cache[5] = 5\n    31\t        self.assertEqual(len(cache), 2)\n    32\t        self.assertEqual(cache[4], 4)\n    33\t        self.assertEqual(cache[5], 5)\n    34\t        self.assertNotIn(3, cache)\n    35\t\n    36\t    def test_fifo_getsizeof(self):\n    37\t        cache = FIFOCache[int, int](maxsize=3, getsizeof=lambda x: x)\n    38\t\n    39\t        cache[1] = 1\n    40\t        cache[2] = 2\n    41\t\n    42\t        self.assertEqual(len(cache), 2)\n    43\t        self.assertEqual(cache[1], 1)\n    44\t        self.assertEqual(cache[2], 2)\n    45\t\n    46\t        cache[3] = 3\n    47\t\n    48\t        self.assertEqual(len(cache), 1)\n    49\t        s",
+   "t": 187.4
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_lru.py | head -150",
+   "obs": "exit=0\n     1\timport unittest\n     2\t\n     3\tfrom cachetools import LRUCache\n     4\t\n     5\tfrom . import CacheTestMixin\n     6\t\n     7\t\n     8\tclass LRUCacheTest(unittest.TestCase, CacheTestMixin):\n     9\t    Cache = LRUCache\n    10\t\n    11\t    def test_lru(self):\n    12\t        cache = LRUCache[int, int](maxsize=2)\n    13\t\n    14\t        cache[1] = 1\n    15\t        cache[2] = 2\n    16\t        cache[3] = 3\n    17\t\n    18\t        self.assertEqual(len(cache), 2)\n    19\t        self.assertEqual(cache[2], 2)\n    20\t        self.assertEqual(cache[3], 3)\n    21\t        self.assertNotIn(1, cache)\n    22\t\n    23\t        cache[2]\n    24\t        cache[4] = 4\n    25\t        self.assertEqual(len(cache), 2)\n    26\t        self.assertEqual(cache[2], 2)\n    27\t        self.assertEqual(cache[4], 4)\n    28\t        self.assertNotIn(3, cache)\n    29\t\n    30\t        cache[5] = 5\n    31\t        self.assertEqual(len(cache), 2)\n    32\t        self.assertEqual(cache[4], 4)\n    33\t        self.assertEqual(cache[5], 5)\n    34\t        self.assertNotIn(2, cache)\n    35\t\n    36\t    def test_lru_getsizeof(self):\n    37\t        cache = LRUCache[int, int](maxsize=3, getsizeof=lambda x: x)\n    38\t\n    39\t        cache[1] = 1\n    40\t        cache[2] = 2\n    41\t\n    42\t        self.assertEqual(len(cache), 2)\n    43\t        self.assertEqual(cache[1], 1)\n    44\t        self.assertEqual(cache[2], 2)\n    45\t\n    46\t        cache[3] = 3\n    47\t\n    48\t        self.assertEqual(len(cache), 1)\n    49\t        self.ass",
+   "t": 187.6
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_rr.py",
+   "obs": "exit=0\n     1\timport random\n     2\timport unittest\n     3\t\n     4\tfrom cachetools import RRCache\n     5\t\n     6\tfrom . import CacheTestMixin\n     7\t\n     8\t\n     9\tclass RRCacheTest(unittest.TestCase, CacheTestMixin):\n    10\t    Cache = RRCache\n    11\t\n    12\t    def test_rr(self):\n    13\t        cache = RRCache[int, int](maxsize=2, choice=min)\n    14\t        self.assertEqual(min, cache.choice)\n    15\t\n    16\t        cache[1] = 1\n    17\t        cache[2] = 2\n    18\t        cache[3] = 3\n    19\t\n    20\t        self.assertEqual(2, len(cache))\n    21\t        self.assertEqual(2, cache[2])\n    22\t        self.assertEqual(3, cache[3])\n    23\t        self.assertNotIn(1, cache)\n    24\t\n    25\t        cache[0] = 0\n    26\t        self.assertEqual(2, len(cache))\n    27\t        self.assertEqual(0, cache[0])\n    28\t        self.assertEqual(3, cache[3])\n    29\t        self.assertNotIn(2, cache)\n    30\t\n    31\t        cache[4] = 4\n    32\t        self.assertEqual(2, len(cache))\n    33\t        self.assertEqual(3, cache[3])\n    34\t        self.assertEqual(4, cache[4])\n    35\t        self.assertNotIn(0, cache)\n    36\t\n    37\t    def test_rr_getsizeof(self):\n    38\t        cache = RRCache[int, int](maxsize=3, choice=min, getsizeof=lambda x: x)\n    39\t\n    40\t        cache[1] = 1\n    41\t        cache[2] = 2\n    42\t\n    43\t        self.assertEqual(len(cache), 2)\n    44\t        self.assertEqual(cache[1], 1)\n    45\t        self.assertEqual(cache[2], 2)\n    46\t\n    47\t        cache[3] = 3\n    48\t\n    4",
+   "t": 199.3
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_fifo.py",
+   "obs": "exit=0\n     1\timport unittest\n     2\t\n     3\tfrom cachetools import FIFOCache\n     4\t\n     5\tfrom . import CacheTestMixin\n     6\t\n     7\t\n     8\tclass FIFOCacheTest(unittest.TestCase, CacheTestMixin):\n     9\t    Cache = FIFOCache\n    10\t\n    11\t    def test_fifo(self):\n    12\t        cache = FIFOCache[int, int](maxsize=2)\n    13\t\n    14\t        cache[1] = 1\n    15\t        cache[2] = 2\n    16\t        cache[3] = 3\n    17\t\n    18\t        self.assertEqual(len(cache), 2)\n    19\t        self.assertEqual(cache[2], 2)\n    20\t        self.assertEqual(cache[3], 3)\n    21\t        self.assertNotIn(1, cache)\n    22\t\n    23\t        cache[2]\n    24\t        cache[4] = 4\n    25\t        self.assertEqual(len(cache), 2)\n    26\t        self.assertEqual(cache[3], 3)\n    27\t        self.assertEqual(cache[4], 4)\n    28\t        self.assertNotIn(2, cache)\n    29\t\n    30\t        cache[5] = 5\n    31\t        self.assertEqual(len(cache), 2)\n    32\t        self.assertEqual(cache[4], 4)\n    33\t        self.assertEqual(cache[5], 5)\n    34\t        self.assertNotIn(3, cache)\n    35\t\n    36\t    def test_fifo_getsizeof(self):\n    37\t        cache = FIFOCache[int, int](maxsize=3, getsizeof=lambda x: x)\n    38\t\n    39\t        cache[1] = 1\n    40\t        cache[2] = 2\n    41\t\n    42\t        self.assertEqual(len(cache), 2)\n    43\t        self.assertEqual(cache[1], 1)\n    44\t        self.assertEqual(cache[2], 2)\n    45\t\n    46\t        cache[3] = 3\n    47\t\n    48\t        self.assertEqual(len(cache), 1)\n    49\t        s",
+   "t": 199.4
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_lru.py",
+   "obs": "exit=0\n     1\timport unittest\n     2\t\n     3\tfrom cachetools import LRUCache\n     4\t\n     5\tfrom . import CacheTestMixin\n     6\t\n     7\t\n     8\tclass LRUCacheTest(unittest.TestCase, CacheTestMixin):\n     9\t    Cache = LRUCache\n    10\t\n    11\t    def test_lru(self):\n    12\t        cache = LRUCache[int, int](maxsize=2)\n    13\t\n    14\t        cache[1] = 1\n    15\t        cache[2] = 2\n    16\t        cache[3] = 3\n    17\t\n    18\t        self.assertEqual(len(cache), 2)\n    19\t        self.assertEqual(cache[2], 2)\n    20\t        self.assertEqual(cache[3], 3)\n    21\t        self.assertNotIn(1, cache)\n    22\t\n    23\t        cache[2]\n    24\t        cache[4] = 4\n    25\t        self.assertEqual(len(cache), 2)\n    26\t        self.assertEqual(cache[2], 2)\n    27\t        self.assertEqual(cache[4], 4)\n    28\t        self.assertNotIn(3, cache)\n    29\t\n    30\t        cache[5] = 5\n    31\t        self.assertEqual(len(cache), 2)\n    32\t        self.assertEqual(cache[4], 4)\n    33\t        self.assertEqual(cache[5], 5)\n    34\t        self.assertNotIn(2, cache)\n    35\t\n    36\t    def test_lru_getsizeof(self):\n    37\t        cache = LRUCache[int, int](maxsize=3, getsizeof=lambda x: x)\n    38\t\n    39\t        cache[1] = 1\n    40\t        cache[2] = 2\n    41\t\n    42\t        self.assertEqual(len(cache), 2)\n    43\t        self.assertEqual(cache[1], 1)\n    44\t        self.assertEqual(cache[2], 2)\n    45\t\n    46\t        cache[3] = 3\n    47\t\n    48\t        self.assertEqual(len(cache), 1)\n    49\t        self.ass",
+   "t": 199.5
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "find . -type f -name '*.py' | head -50",
+   "obs": "exit=0\n./docs/conf.py\n./src/cachetools/func.py\n./src/cachetools/keys.py\n./src/cachetools/_cached.py\n./src/cachetools/_cachedmethod.py\n./src/cachetools/__init__.py\n./tests/test_cache.py\n./tests/test_cached.py\n./tests/test_cachedmethod.py\n./tests/test_classmethod.py\n./tests/test_fifo.py\n./tests/test_func.py\n./tests/test_keys.py\n./tests/test_lfu.py\n./tests/test_lru.py\n./tests/test_rr.py\n./tests/test_threading.py\n./tests/test_tlru.py\n./tests/test_ttl.py\n./tests/__init__.py\n",
+   "t": 210.9
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | head -100",
+   "obs": "exit=0\n     1\t\"\"\"Extensible memoizing collections and decorators.\"\"\"\n     2\t\n     3\t__all__ = (\n     4\t    \"Cache\",\n     5\t    \"FIFOCache\",\n     6\t    \"LFUCache\",\n     7\t    \"LRUCache\",\n     8\t    \"RRCache\",\n     9\t    \"TLRUCache\",\n    10\t    \"TTLCache\",\n    11\t    \"cached\",\n    12\t    \"cachedmethod\",\n    13\t)\n    14\t\n    15\t__version__ = \"7.2.0\"\n    16\t\n    17\timport collections\n    18\timport collections.abc\n    19\timport functools\n    20\timport heapq\n    21\timport random\n    22\timport time\n    23\t\n    24\tfrom . import keys\n    25\t\n    26\t\n    27\tclass _DefaultSize:\n    28\t    \"\"\"A minimal \"fake\" dict that returns a constant size 1 for any key.\"\"\"\n    29\t\n    30\t    __slots__ = ()\n    31\t\n    32\t    def __getitem__(self, _key):\n    33\t        return 1\n    34\t\n    35\t    def __setitem__(self, _key, _value):\n    36\t        pass\n    37\t\n    38\t    def pop(self, _key):\n    39\t        return 1\n    40\t\n    41\t    def clear(self):\n    42\t        pass\n    43\t\n    44\t\n    45\tclass Cache(collections.abc.MutableMapping):\n    46\t    \"\"\"Mutable mapping to serve as a simple cache or cache base class.\"\"\"\n    47\t\n    48\t    __marker = object()\n    49\t\n    50\t    __size = _DefaultSize()\n    51\t\n    52\t    def __init__(self, maxsize, getsizeof=None):\n    53\t        if maxsize < 0:\n    54\t            raise ValueError(\"maxsize must be non-negative\")\n    55\t        if getsizeof:\n    56\t            self.getsizeof = getsizeof\n    57\t        if self.getsizeof is not Cache.getsizeof:\n    58\t        ",
+   "t": 211.0
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | sed -n '100,200p'",
+   "obs": "exit=0\n   100\t        del self.__data[key]\n   101\t        self.__currsize -= size\n   102\t\n   103\t    def __contains__(self, key):\n   104\t        return key in self.__data\n   105\t\n   106\t    def __missing__(self, key):\n   107\t        raise KeyError(key)\n   108\t\n   109\t    def __iter__(self):\n   110\t        return iter(self.__data)\n   111\t\n   112\t    def __len__(self):\n   113\t        return len(self.__data)\n   114\t\n   115\t    # Note that we cannot simply inherit get(), pop() and setdefault()\n   116\t    # from MutableMapping, since these rely on __getitem__ throwing a\n   117\t    # KeyError on cache miss.  This is not the case if __missing__ is\n   118\t    # implemented for a Cache subclass, so we have to roll our own,\n   119\t    # somewhat less elegant versions.\n   120\t\n   121\t    def get(self, key, default=None):\n   122\t        if key in self:\n   123\t            return self[key]\n   124\t        else:\n   125\t            return default\n   126\t\n   127\t    def pop(self, key, default=__marker):\n   128\t        if key in self:\n   129\t            value = self[key]\n   130\t            del self[key]\n   131\t        elif default is self.__marker:\n   132\t            raise KeyError(key)\n   133\t        else:\n   134\t            value = default\n   135\t        return value\n   136\t\n   137\t    def setdefault(self, key, default=None):\n   138\t        if key in self:\n   139\t            value = self[key]\n   140\t        else:\n   141\t            self[key] = value = default\n   142\t        return value\n   14",
+   "t": 211.2
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | sed -n '330,450p'",
+   "obs": "exit=0\n   330\t    \"\"\"Random Replacement (RR) cache implementation.\"\"\"\n   331\t\n   332\t    def __init__(self, maxsize, choice=random.choice, getsizeof=None):\n   333\t        Cache.__init__(self, maxsize, getsizeof)\n   334\t        self.__choice = choice\n   335\t        self.__index = {}\n   336\t        self.__keys = []\n   337\t\n   338\t    @property\n   339\t    def choice(self):\n   340\t        \"\"\"The `choice` function used by the cache.\"\"\"\n   341\t        return self.__choice\n   342\t\n   343\t    def __setitem__(self, key, value, cache_setitem=Cache.__setitem__):\n   344\t        cache_setitem(self, key, value)\n   345\t        if key not in self.__index:\n   346\t            self.__index[key] = len(self.__keys)\n   347\t            self.__keys.append(key)\n   348\t\n   349\t    def __delitem__(self, key, cache_delitem=Cache.__delitem__):\n   350\t        cache_delitem(self, key)\n   351\t        index = self.__index.pop(key)\n   352\t        if index != len(self.__keys) - 1:\n   353\t            last = self.__keys[-1]\n   354\t            self.__keys[index] = last\n   355\t            self.__index[last] = index\n   356\t        self.__keys.pop()\n   357\t\n   358\t    def popitem(self):\n   359\t        \"\"\"Remove and return a random `(key, value)` pair.\"\"\"\n   360\t        try:\n   361\t            key = self.__choice(self.__keys)\n   362\t        except IndexError:\n   363\t            raise KeyError(\"%s is empty\" % type(self).__name__) from None\n   364\t        else:\n   365\t            return (key, self.pop(key))\n   366\t\n   ",
+   "t": 222.7
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | sed -n '450,550p'",
+   "obs": "exit=0\n   450\t\n   451\tclass TTLCache(_TimedCache):\n   452\t    \"\"\"LRU Cache implementation with per-item time-to-live (TTL) value.\"\"\"\n   453\t\n   454\t    class _Link:\n   455\t        __slots__ = (\"expires\", \"key\", \"next\", \"prev\")\n   456\t\n   457\t        def __init__(self, key=None, expires=None):\n   458\t            self.key = key\n   459\t            self.expires = expires\n   460\t\n   461\t        def __reduce__(self):\n   462\t            return TTLCache._Link, (self.key, self.expires)\n   463\t\n   464\t        def unlink(self):\n   465\t            next = self.next\n   466\t            prev = self.prev\n   467\t            prev.next = next\n   468\t            next.prev = prev\n   469\t\n   470\t    def __init__(self, maxsize, ttl, timer=time.monotonic, getsizeof=None):\n   471\t        _TimedCache.__init__(self, maxsize, timer, getsizeof)\n   472\t        self.__root = root = TTLCache._Link()\n   473\t        root.prev = root.next = root\n   474\t        self.__links = collections.OrderedDict()\n   475\t        self.__ttl = ttl\n   476\t\n   477\t    def __contains__(self, key):\n   478\t        try:\n   479\t            link = self.__links[key]  # no reordering\n   480\t        except KeyError:\n   481\t            return False\n   482\t        else:\n   483\t            return self.timer() < link.expires\n   484\t\n   485\t    def __getitem__(self, key, cache_getitem=Cache.__getitem__):\n   486\t        try:\n   487\t            link = self.__getlink(key)\n   488\t        except KeyError:\n   489\t            expired = False\n   490\t",
+   "t": 222.8
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n src/cachetools/__init__.py | sed -n '550,650p'",
+   "obs": "exit=0\n   550\t            time = self.timer()\n   551\t        root = self.__root\n   552\t        curr = root.next\n   553\t        links = self.__links\n   554\t        expired = []\n   555\t        cache_delitem = Cache.__delitem__\n   556\t        cache_getitem = Cache.__getitem__\n   557\t        while curr is not root and not (time < curr.expires):\n   558\t            expired.append((curr.key, cache_getitem(self, curr.key)))\n   559\t            cache_delitem(self, curr.key)\n   560\t            del links[curr.key]\n   561\t            next = curr.next\n   562\t            curr.unlink()\n   563\t            curr = next\n   564\t        return expired\n   565\t\n   566\t    def popitem(self):\n   567\t        \"\"\"Remove and return the `(key, value)` pair least recently used that\n   568\t        has not already expired.\n   569\t\n   570\t        \"\"\"\n   571\t        with self.timer as time:\n   572\t            self.expire(time)\n   573\t            try:\n   574\t                key = next(iter(self.__links))\n   575\t            except StopIteration:\n   576\t                raise KeyError(\"%s is empty\" % type(self).__name__) from None\n   577\t            else:\n   578\t                return (key, self.pop(key))\n   579\t\n   580\t    def clear(self):\n   581\t        _TimedCache.clear(self)\n   582\t        root = self.__root\n   583\t        root.prev = root.next = root\n   584\t        self.__links.clear()\n   585\t\n   586\t    def __getlink(self, key):\n   587\t        value = self.__links[key]\n   588\t        self.__links.move_to_end(",
+   "t": 222.9
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cd /work && python -m pytest tests/ -v 2>&1 | head -100",
+   "obs": "exit=0\n============================= test session starts ==============================\nplatform linux -- Python 3.11.17, pytest-9.1.1, pluggy-1.7.0 -- /usr/local/bin/python\ncachedir: .pytest_cache\nrootdir: /work\nconfigfile: pyproject.toml\ncollecting ... collected 337 items\n\ntests/test_cache.py::CacheTest::test_clear PASSED                        [  0%]\ntests/test_cache.py::CacheTest::test_clear_empty PASSED                  [  0%]\ntests/test_cache.py::CacheTest::test_clear_getsizeof PASSED              [  0%]\ntests/test_cache.py::CacheTest::test_defaults PASSED                     [  1%]\ntests/test_cache.py::CacheTest::test_delete PASSED                       [  1%]\ntests/test_cache.py::CacheTest::test_getsizeof_negative PASSED           [  1%]\ntests/test_cache.py::CacheTest::test_getsizeof_param PASSED              [  2%]\ntests/test_cache.py::CacheTest::test_getsizeof_replace_grow PASSED       [  2%]\ntests/test_cache.py::CacheTest::test_getsizeof_replace_same_size PASSED  [  2%]\ntests/test_cache.py::CacheTest::test_getsizeof_replace_shrink PASSED     [  2%]\ntests/test_cache.py::CacheTest::test_getsizeof_subclass PASSED           [  3%]\ntests/test_cache.py::CacheTest::test_insert PASSED                       [  3%]\ntests/test_cache.py::CacheTest::test_maxsize_infinite PASSED             [  3%]\ntests/test_cache.py::CacheTest::test_maxsize_negative PASSED             [  4%]\ntests/test_cache.py::CacheTest::test_maxsize_zero PASSED                 [  4%]\ntests/test_cache.py::Cac",
+   "t": 235.0
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cd /work && python -m pytest tests/ -v 2>&1 | tail -50",
+   "obs": "exit=0\ntests/test_tlru.py::TLRUCacheTest::test_overwrite_existing_with_expired PASSED [ 86%]\ntests/test_tlru.py::TLRUCacheTest::test_pickle PASSED                    [ 86%]\ntests/test_tlru.py::TLRUCacheTest::test_pickle_maxsize PASSED            [ 86%]\ntests/test_tlru.py::TLRUCacheTest::test_pop PASSED                       [ 86%]\ntests/test_tlru.py::TLRUCacheTest::test_popitem PASSED                   [ 87%]\ntests/test_tlru.py::TLRUCacheTest::test_popitem_exception_context PASSED [ 87%]\ntests/test_tlru.py::TLRUCacheTest::test_tlru_clear PASSED                [ 87%]\ntests/test_tlru.py::TLRUCacheTest::test_tlru_datetime PASSED             [ 88%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu PASSED                       [ 88%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu_atomic PASSED                [ 88%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu_expire PASSED                [ 89%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu_expired PASSED               [ 89%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu_heap_cleanup PASSED          [ 89%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu_lru PASSED                   [ 89%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu_reverse_insert PASSED        [ 90%]\ntests/test_tlru.py::TLRUCacheTest::test_ttu_tuple_key PASSED             [ 90%]\ntests/test_tlru.py::TLRUCacheTest::test_update PASSED                    [ 90%]\ntests/test_ttl.py::TTLCacheTest::test_clear PASSED                       [ 91%]\ntests/test_ttl.py::TTLCacheTest::test_clear_emp",
+   "t": 240.9
+  },
+  {
+   "type": "step",
+   "tier": "ultra",
+   "action": "run",
+   "detail": "cat -n tests/test_rr.py",
+   "obs": "exit=0\n     1\timport random\n     2\timport unittest\n     3\t\n     4\tfrom cachetools import RRCache\n     5\t\n     6\tfrom . import CacheTestMixin\n     7\t\n     8\t\n     9\tclass RRCacheTest(unittest.TestCase, CacheTestMixin):\n    10\t    Cache = RRCache\n    11\t\n    12\t    def test_rr(self):\n    13\t        cache = RRCache[int, int](maxsize=2, choice=min)\n    14\t        self.assertEqual(min, cache.choice)\n    15\t\n    16\t        cache[1] = 1\n    17\t        cache[2] = 2\n    18\t        cache[3] = 3\n    19\t\n    20\t        self.assertEqual(2, len(cache))\n    21\t        self.assertEqual(2, cache[2])\n    22\t        self.assertEqual(3, cache[3])\n    23\t        self.assertNotIn(1, cache)\n    24\t\n    25\t        cache[0] = 0\n    26\t        self.assertEqual(2, len(cache))\n    27\t        self.assertEqual(0, cache[0])\n    28\t        self.assertEqual(3, cache[3])\n    29\t        self.assertNotIn(2, cache)\n    30\t\n    31\t        cache[4] = 4\n    32\t        self.assertEqual(2, len(cache))\n    33\t        self.assertEqual(3, cache[3])\n    34\t        self.assertEqual(4, cache[4])\n    35\t        self.assertNotIn(0, cache)\n    36\t\n    37\t    def test_rr_getsizeof(self):\n    38\t        cache = RRCache[int, int](maxsize=3, choice=min, getsizeof=lambda x: x)\n    39\t\n    40\t        cache[1] = 1\n    41\t        cache[2] = 2\n    42\t\n    43\t        self.assertEqual(len(cache), 2)\n    44\t        self.assertEqual(cache[1], 1)\n    45\t        self.assertEqual(cache[2], 2)\n    46\t\n    47\t        cache[3] = 3\n    48\t\n    4",
+   "t": 241.1
+  },
+  {
+   "type": "budget",
+   "tier": "ultra",
+   "t": 241.1
+  }
+ ]
+}

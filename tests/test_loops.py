@@ -446,3 +446,19 @@ def test_scratch_files_never_reach_the_delivered_patch(repo):
         sb.write("test_scratch.py", "def test_s():\n    assert True\n")
         d = sb.diff()
         assert "tests/test_real.py" in d and "test_scratch.py" not in d.replace("tests/test_real.py", "")
+
+
+def test_one_reply_cannot_feed_back_an_unbounded_amount_of_text(repo):
+    url, task = repo
+    seen = []
+    big = "python -c \"print('x' * 5000)\""
+    llm = FakeLLM([batch(*[dict(action="run", cmd=big) for _ in range(3)]), json.dumps(dict(action="run", cmd="ls"))])
+    orig = llm.chat
+
+    def spy(tier, messages, **kw):
+        seen.append(messages[-1]["content"])
+        return orig(tier, messages, **kw)
+    llm.chat = spy
+    events_of(llm, url, task["issue"], ["super"])
+    fed = [m for m in seen if m.count("x" * 100) > 0]
+    assert fed and all(len(m) <= agent.MAX_FEEDBACK + 400 for m in fed)
