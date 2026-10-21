@@ -1,0 +1,6 @@
+{
+  "_note": "USD per 1M tokens [input, output]. ESTIMATES from third-party aggregators, not Nebius's official price list. Override in .env (NANO_PRICE_IN, ...) or edit this file after checking the Token Factory pricing page.",
+  "nano": [0.06, 0.24],
+  "super": [0.30, 0.90],
+  "ultra": [0.50, 2.20]
+}

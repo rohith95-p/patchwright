@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e . pytest pyflakes
+      - name: Static check
+        run: python -m pyflakes patchwright bench webapp dashboard tests
+      - name: Benchmark tasks are fair (visible pass, hidden fail on bug, reference fix passes)
+        run: python -m bench.validate
+      - name: Tests (the sandbox tests use the runner's Docker; no model or API key is needed)
+        run: python -m pytest tests -q
