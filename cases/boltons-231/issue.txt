@@ -1,0 +1,17 @@
+iterutils.chunked and chunked_iter raise TypeError for bytes objects
+
+```>>> from boltons.iterutils import chunked
+>>> chunked('abc123', 3)
+['abc', '123']
+>>> chunked(b'abc123', 3)
+Traceback (most recent call last):
+  File "<pyshell#13>", line 1, in <module>
+    chunked(b'abc123', 3)
+  File "C:\Program Files\Python38\lib\site-packages\boltons\iterutils.py", line 197, in chunked
+    return list(chunk_iter)
+  File "C:\Program Files\Python38\lib\site-packages\boltons\iterutils.py", line 242, in chunked_iter
+    yield postprocess(cur_chunk)
+  File "C:\Program Files\Python38\lib\site-packages\boltons\iterutils.py", line 233, in <lambda>
+    postprocess = lambda chk, _sep=type(src)(): _sep.join(chk)
+TypeError: sequence item 0: expected a bytes-like object, int found
+```

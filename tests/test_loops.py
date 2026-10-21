@@ -481,3 +481,42 @@ def test_grounding_query_names_the_library_and_the_broken_api():
                               "RRCache.popitem() on an empty cache raises the wrong exception")
     assert q.startswith("python cachetools ") and "popitem" in q and "demo" not in q and "bugfix" not in q
     assert agent.grounding_query("/local/repo", "") == ""
+
+
+class FakeToolLLM(FakeLLM):
+    """Like FakeLLM, but speaks native tool calling: each script entry is a list of (name, args) calls for one reply."""
+
+    def chat_tools(self, tier, messages, tools, temperature=0.2, max_tokens=4096):
+        self.calls += 1
+        self.usage.add(tier, self.tokens_per_call, 10, 0.0)
+        self.seen = messages
+        step = self.script.pop(0) if self.script else [("run", {"cmd": f"echo filler {self.calls}"})]
+        return {"content": "", "calls": [{"id": f"c{self.calls}_{i}", "name": n, "args": a, "raw": json.dumps(a)} for i, (n, a) in enumerate(step)]}
+
+
+def test_native_tool_calls_solve_a_bug_and_every_call_gets_a_result(repo):
+    url, task = repo
+    llm = FakeToolLLM([
+        [("write", {"path": "test_new.py", "content": "from stats import average\n\ndef test_a():\n    assert average([2, 4, 6]) == 4\n"}),
+         ("run", {"cmd": "python -m pytest -q test_new.py"})],
+        [("run", {"cmd": "grep -n return stats.py"}), ("run", {"cmd": "ls"}), ("run", {"cmd": "pwd"}), ("run", {"cmd": "echo fourth call is over the limit"})],
+        [("write", {"path": "stats.py", "content": "def average(nums):\n    return sum(nums) / len(nums)\n"})],
+        [("finish", {"repro_test_cmd": "python -m pytest -q test_new.py", "suite_cmd": "python -m pytest -q", "summary": "off by one"})],
+    ])
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert res.solved, [e for e in evs if e["type"] in ("verify", "abort", "bad_reply")]
+    ids = [c["tool_calls"] for c in llm.seen if c.get("tool_calls")]
+    answered = {m["tool_call_id"] for m in llm.seen if m["role"] == "tool"}
+    assert all(tc["id"] in answered for calls in ids for tc in calls), "an unanswered tool call makes the next API request fail"
+
+
+def test_a_reply_without_tool_calls_is_a_bad_reply_not_a_crash(repo):
+    url, task = repo
+
+    class Prose(FakeToolLLM):
+        def chat_tools(self, tier, messages, tools, **kw):
+            self.calls += 1
+            self.usage.add(tier, 100, 10, 0.0)
+            return {"content": "Let me look at the function.", "calls": []}
+    res, evs = events_of(Prose([]), url, task["issue"], ["super"])
+    assert not res.solved and any(e["type"] == "abort" and "unparseable" in e["reason"] for e in evs)

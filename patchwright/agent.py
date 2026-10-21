@@ -53,7 +53,7 @@ You are given a snapshot of the repository below, so you usually do not need to 
 4. Run your new test and the whole existing suite; both must pass.
 5. Finish.
 
-Reply with exactly ONE JSON object per turn and nothing else. Actions:
+Reply with exactly ONE JSON object per turn and nothing else. The action value must be one of: run, write, edit, search, finish (to read or search files, use run with grep or sed). Actions:
 {"action":"run","cmd":"<bash command>"}
 {"action":"write","path":"<relative path>"}
 <<<FILE
@@ -79,6 +79,42 @@ Your new test file must have several assertions, not only the example from the i
 Read files in small ranges, never whole large files: use grep -n, or sed -n 'START,ENDp' file (about 60 lines at a time). The code most relevant to the issue is already given to you above, so start from it.
 
 Rules: install dependencies with pip if needed. Never delete tests. Never modify existing test files. Think about edge cases (empty input, boundaries, types) the issue implies. The harness will independently revert your source change to confirm your test fails without it, so your test must truly capture the bug. Be efficient; you have a limited number of steps."""
+
+
+TOOLS = [
+    {"type": "function", "function": {"name": "run", "description": "Run a bash command in /work: read code (grep -n, sed -n 'A,Bp' file), run tests, run python.",
+        "parameters": {"type": "object", "properties": {"cmd": {"type": "string"}}, "required": ["cmd"]}}},
+    {"type": "function", "function": {"name": "write", "description": "Create a NEW file (for example your new test). Never use it on an existing source file.",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"},
+                                                        "content": {"type": "string", "description": "the full file content, exactly as it should appear on disk"}},
+                       "required": ["path", "content"]}}},
+    {"type": "function", "function": {"name": "edit", "description": "Change an EXISTING file: replace the exact text `search` (copied from the file, unique in it, "
+                                                                     "including indentation) with `replace`.",
+        "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "search": {"type": "string"}, "replace": {"type": "string"}},
+                       "required": ["path", "search", "replace"]}}},
+    {"type": "function", "function": {"name": "search", "description": "Web search, only for unfamiliar library or error behaviour.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string"}}, "required": ["query"]}}},
+    {"type": "function", "function": {"name": "finish", "description": "Call when your fix and your new test pass. The harness then verifies everything independently.",
+        "parameters": {"type": "object", "properties": {
+            "repro_test_cmd": {"type": "string", "description": "command that runs ONLY your new test, e.g. python -m pytest -q test_bug.py"},
+            "suite_cmd": {"type": "string", "description": "command that runs the project's full suite, e.g. python -m pytest -q"},
+            "summary": {"type": "string", "description": "root cause and fix in 2-4 sentences"}}, "required": ["repro_test_cmd", "suite_cmd", "summary"]}}},
+]
+
+
+def _call_to_act(c: dict) -> dict:
+    """A native tool call as the internal action the loop already executes."""
+    a, args = c["name"], c["args"]
+    if a == "edit":
+        return {"action": "edit", "path": args.get("path", ""), "edits": [(args["search"], args["replace"])] if "search" in args and "replace" in args else []}
+    return {"action": a, **args}
+
+
+_i = SYSTEM.index("Reply with exactly ONE JSON object")
+_j = SYSTEM.index("Read files in small ranges")
+SYSTEM_TOOLS = (SYSTEM[:_i] + "Act only by calling the tools; never answer in prose. You may call up to 3 tools in one reply (they run in order; if one "
+                "fails, the rest are skipped): batch what does not depend on a result you must read first, for example write your new test and run it, "
+                "or edit the source and run the new test and the suite. NEVER rewrite an existing source file with write; use edit.\n\n" + SYSTEM[_j:])
 
 
 @dataclass
@@ -120,6 +156,65 @@ def _edit_from_fields(obj: dict) -> list[tuple[str, str]]:
         elif new is None and (key in _NEW_KEYS or "replace" in key):
             new = v
     return [(old, new)] if old and new is not None else []
+
+
+READ_NAMES = {"read", "cat", "open", "view", "show", "print", "read_file", "readfile", "file_read", "head", "tail", "view_file", "open_file"}
+SHELL_NAMES = {"bash", "sh", "shell", "exec", "execute", "command", "cmd", "terminal", "run_command", "run_shell", "run_bash", "shell_command"}
+GREP_NAMES = {"grep", "rg", "ripgrep", "search_code", "find_in_files", "search_files", "grep_search"}
+LIST_NAMES = {"ls", "find", "tree", "list", "list_files", "list_dir", "listdir"}
+REPLACE_NAMES = {"replace", "str_replace", "replace_in_file", "str_replace_editor", "update_file", "modify", "apply_edit"}
+VALID_ACTIONS = "run, write, edit, search, finish"
+READ_ONLY = re.compile(r"^\s*(cd\s+\S+\s*(&&|;)\s*)?(cat|sed|grep|egrep|rg|ls|head|tail|find|wc|file|tree|nl|awk)\b")
+NUDGE_AFTER = 3   # read-only replies in a row before the harness tells the model to stop exploring and write the test
+PUSH_AFTER = 5    # ... and before it tells the model to commit to a fix
+
+
+def is_reading(acts: list[dict]) -> bool:
+    """True when every action in a reply only looks at the repository (nothing was written, edited or tested)."""
+    return bool(acts) and all((a["action"] == "run" and bool(READ_ONLY.match(str(a.get("cmd", ""))))) or a["action"] == "search" for a in acts)
+
+
+def _first(obj: dict, *keys):
+    for k in keys:
+        v = obj.get(k)
+        if v not in (None, "", [], {}):
+            return v
+    return None
+
+
+def _normalize_action(obj: dict) -> dict:
+    """Models invent action names (read, grep, bash, sed, str_replace ...) and field names. Map the ones whose meaning is
+    obvious onto the real actions, so a sensible intention is not wasted on a format error."""
+    a = str(obj.get("action", "")).strip().lower()
+    path = _first(obj, "path", "file", "file_path", "filename", "filepath", "target")
+    if a in READ_NAMES and path:
+        start, end = _first(obj, "start", "start_line", "from"), _first(obj, "end", "end_line", "to")
+        rng = _first(obj, "lines", "range", "line_range")
+        if isinstance(rng, (list, tuple)) and len(rng) == 2:
+            start, end = rng
+        q = shlex.quote(str(path))
+        if isinstance(start, int) and isinstance(end, int):
+            return {"action": "run", "cmd": f"sed -n '{start},{end}p' -- {q}"}
+        return {"action": "run", "cmd": "cat -- " + q}
+    if a in SHELL_NAMES or (a == "sed" or a == "run") and not obj.get("cmd") and _first(obj, "command", "script", "code"):
+        cmd = _first(obj, "cmd", "command", "script", "code", "input")
+        if isinstance(cmd, list):
+            cmd = " ".join(shlex.quote(str(c)) for c in cmd)
+        if cmd:
+            return {"action": "run", "cmd": str(cmd)}
+    if a in GREP_NAMES:
+        pat = _first(obj, "pattern", "query", "regex", "text", "term")
+        if pat:
+            return {"action": "run", "cmd": f"grep -rn --include='*.py' -- {shlex.quote(str(pat))} {shlex.quote(str(path or '.'))} | head -40"}
+    if a in LIST_NAMES:
+        return {"action": "run", "cmd": f"ls -la {shlex.quote(str(path or '.'))}"}
+    if a in REPLACE_NAMES and path:
+        old = _first(obj, "old_str", "old_string", "old", "search", "find", "before")
+        new = obj.get("new_str", obj.get("new_string", obj.get("new", obj.get("replace", obj.get("replacement", obj.get("after"))))))
+        if isinstance(old, str) and isinstance(new, str):
+            return {"action": "edit", "path": str(path), "edits": [(old, new)]}
+    return obj
+
 
 
 def _parse_actions(text: str) -> list[dict]:
@@ -167,8 +262,7 @@ def _parse_actions(text: str) -> list[dict]:
                         pairs, cursor = [(old_b.group(1), new_b.group(1))], new_b.end()
             obj["edits"] = pairs
             pos = cursor
-        if obj["action"] in ("read", "cat", "open", "view") and obj.get("path"):
-            obj = {"action": "run", "cmd": "cat -- " + shlex.quote(str(obj["path"]))}
+        obj = _normalize_action(obj)
         acts.append(obj)
     if not acts:
         m = RUN_FALLBACK.search(text)
@@ -237,7 +331,21 @@ def triage(llm: LLM, snapshot: str, issue: str) -> dict:
     return _parse_triage(text)
 
 
-def _verify(sb: Sandbox, act: dict) -> tuple[bool, str]:
+SUITE_CMD = "python -m pytest -q -p no:cacheprovider -rfE 2>&1 | tail -n 250"
+
+
+def _failing_ids(out: str) -> set[str]:
+    return set(re.findall(r"^(?:FAILED|ERROR) (\S+)", out, re.M))
+
+
+def _baseline(sb: Sandbox) -> tuple[int, set[str]]:
+    """The project's suite before any change. Real projects often ship with failing or uncollectable tests (old code on a new
+    Python, optional dependencies); a fix is judged on the failures it adds, not on failures that were already there."""
+    code, out = sb.exec(SUITE_CMD, timeout=600)
+    return code, _failing_ids(out)
+
+
+def _verify(sb: Sandbox, act: dict, baseline: tuple[int, set[str]] | None = None) -> tuple[bool, str]:
     repro, suite = act.get("repro_test_cmd", ""), act.get("suite_cmd", "")
     if not repro or not suite:
         return False, "finish needs both repro_test_cmd and suite_cmd."
@@ -247,10 +355,19 @@ def _verify(sb: Sandbox, act: dict) -> tuple[bool, str]:
     code, out = sb.exec(repro)
     if code != 0:
         return False, f"Repro test still fails:\n{out}"
-    code, out = sb.exec(suite, timeout=600)
-    if code != 0:
-        return False, f"Existing suite fails:\n{out}"
-    return True, "verified"
+    if baseline is None:
+        code, out = sb.exec(suite, timeout=600)
+        if code != 0:
+            return False, f"Existing suite fails:\n{out}"
+        return True, "verified"
+    base_code, base_ids = baseline
+    code, out = sb.exec(SUITE_CMD, timeout=600)
+    fresh = {n for n in sb.new_files()}
+    added = {i for i in _failing_ids(out) - base_ids if i.split("::")[0] not in fresh}
+    if added or (code != 0 and base_code == 0 and not _failing_ids(out)):
+        return False, "Your change broke tests that passed before it:\n" + "\n".join(sorted(added)[:15]) + "\n\n" + out[-1500:]
+    note = f" ({len(base_ids)} test(s) were already failing before any change and are ignored)" if base_ids else ""
+    return True, "verified" + note
 
 
 def _edge_review(llm: LLM, tier: str, sb: Sandbox, issue: str, docs: str = "") -> tuple[bool, str]:
@@ -282,8 +399,8 @@ def _compact(msgs: list[dict]) -> list[dict]:
         return msgs
     out = msgs[:2]
     for m in msgs[2:-KEEP_FULL]:
-        c = m["content"]
-        out.append({"role": m["role"], "content": c if len(c) <= 350 else c[:300] + " ...[clipped]"})
+        c = m.get("content") or ""
+        out.append({**m, "content": (c if len(c) <= 350 else c[:300] + " ...[clipped]") or None})
     return out + msgs[-KEEP_FULL:]
 
 
@@ -350,7 +467,7 @@ def _detail(act: dict) -> str:
     return ""
 
 
-def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_event=lambda e: None,
+def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_event=lambda e: None, source_url: str | None = None,
               tiers=None, post_check=None, route: bool = False) -> Result:
     t0 = time.time()
     tiers = tiers or TIER_ORDER
@@ -362,10 +479,13 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                        "cost_usd": round(u.cost_usd, 6), "by_tier": u.by_tier}
         on_event(ev)
 
-    emit({"type": "start", "repo": repo_url, "tiers": tiers, "models": {t: get_model(t) for t in ["nano", *tiers]}})
+    real_url = source_url or repo_url  # the public project this copy came from, if the working copy is local
+    emit({"type": "start", "repo": real_url, "tiers": tiers, "models": {t: get_model(t) for t in ["nano", *tiers]}})
     with Sandbox(repo_url, ref) as sb:
         sb.setup()
-        snapshot = sb.snapshot()
+        baseline = _baseline(sb)
+        emit({"type": "baseline", "suite_exit": baseline[0], "failing": len(baseline[1])})
+        snapshot = sb.snapshot(budget=6000 if real_url.startswith("http") else 14000)  # a big real project: the tree and the relevant code, not file dumps
         info = triage(llm, snapshot, issue)
         hint = info["hint"]
         emit({"type": "triage", "tier": "nano", "text": hint})
@@ -394,13 +514,13 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             sources.extend({"query": query, "title": r["title"], "url": r["url"]} for r in results)
             return format_results(results) if results else ""
 
-        if REMOTE_RESEARCH and repo_url.startswith("http"):  # a real repository: look for related public discussion
-            ctx = research(related_query(repo_url, issue), "related discussion")
+        if REMOTE_RESEARCH and real_url.startswith("http"):  # a real repository: look for related public discussion
+            ctx = research(related_query(real_url, issue), "related discussion")
             if ctx:
                 hint += "\n\nPossibly related web results (Tavily; may be about a different problem):\n" + ctx[:1500]
         docs_ctx = ""
-        if GROUNDING and repo_url.startswith("http"):  # the documented behaviour of what is being fixed, from official documentation only
-            docs_ctx = research(grounding_query(repo_url, issue), "documentation", docs_search)
+        if GROUNDING and real_url.startswith("http"):  # the documented behaviour of what is being fixed, from official documentation only
+            docs_ctx = research(grounding_query(real_url, issue), "documentation", docs_search)
             if docs_ctx:
                 hint += ("\n\nOfficial documentation found by Tavily (use it for expected behaviour; "
                          "ignore it if it is about something else):\n" + docs_ctx[:1200])
@@ -409,12 +529,13 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
         excerpts = ("Code most relevant to the issue (found by searching the repository for the names it mentions; "
                     "read these before exploring):\n" + found + "\n\n") if found else ""
         notes = ""
+        tool_mode = hasattr(llm, "chat_tools") and os.getenv("PW_TOOLS", "1") == "1"
         steps = 0
         bad = 0
 
         def attempt_finish(tier: str, act: dict, auto: bool = False) -> tuple[Result | None, str]:
             """Run every proof check. Used for the model's own `finish` and for the harness's auto-finish."""
-            ok, why = _verify(sb, act)
+            ok, why = _verify(sb, act, baseline)
             emit({"type": "verify", "tier": tier, "ok": ok, "auto": auto, "why": why[:1200]})
             if ok and EDGE_REVIEW and not state["reviewed"]:
                 state["reviewed"] = True
@@ -456,33 +577,47 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 sb.reset()
             emit({"type": "tier_start", "tier": tier, "model": get_model(tier)})
             first = (f"Issue:\n{issue}\n\nRepository snapshot:\n{snapshot}\n\n{excerpts}"
-                     f"Triage hint from a fast model (may be wrong):\n{hint}{notes}")
-            msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": first}]
+                     f"Triage hint from a fast model (may be wrong):\n{hint}{notes}\n\n"
+                     "Plan: the code above is where to look. In your FIRST reply, call tools to write a NEW test that reproduces the issue's own "
+                     "example and run it (read a file only if the code above is not enough). In your SECOND reply, edit the source to fix the root "
+                     "cause and run the new test and the suite. Do not read whole files.")
+            msgs = [{"role": "system", "content": SYSTEM_TOOLS if tool_mode else SYSTEM}, {"role": "user", "content": first}]
             recent: list[str] = []
+            read_streak = 0
             bad_run = rejects = 0
             abort = ""
             n_steps = STEPS.get(tier, 14)
             for si in range(n_steps):
                 u = llm.usage
-                if u.prompt_tokens + u.completion_tokens > (TOKEN_BUDGET_REMOTE if repo_url.startswith("http") else TOKEN_BUDGET):
+                if u.prompt_tokens + u.completion_tokens > (TOKEN_BUDGET_REMOTE if real_url.startswith("http") else TOKEN_BUDGET):
                     emit({"type": "budget", "tier": tier})
                     return Result(False, tier, steps, "stopped: token budget reached", sb.diff(), list(sources), time.time() - t0, None, bad)
                 if time.time() - t0 > MAX_SECONDS:
                     emit({"type": "budget", "tier": tier, "reason": "time limit"})
                     return Result(False, tier, steps, "stopped: time limit reached", sb.diff(), list(sources), time.time() - t0, None, bad)
                 steps += 1
-                reply = llm.chat(tier, _compact(msgs))
-                msgs.append({"role": "assistant", "content": reply})
-                acts = _parse_actions(reply)[:MAX_ACTIONS]
+                calls = []
+                if tool_mode:  # native tool calling: the API delivers well-formed actions, so there is no format to get wrong
+                    out_msg = llm.chat_tools(tier, _compact(msgs), TOOLS)
+                    reply, calls = out_msg["content"], out_msg["calls"]
+                    msgs.append({"role": "assistant", "content": reply or None, "tool_calls": [
+                        {"id": c["id"], "type": "function", "function": {"name": c["name"], "arguments": c["raw"]}} for c in calls]} if calls
+                        else {"role": "assistant", "content": reply or "(no reply)"})
+                    acts = [_call_to_act(c) for c in calls[:MAX_ACTIONS]]
+                else:
+                    reply = llm.chat(tier, _compact(msgs))
+                    msgs.append({"role": "assistant", "content": reply})
+                    acts = _parse_actions(reply)[:MAX_ACTIONS]
                 if not acts:
                     bad += 1
                     bad_run += 1
-                    emit({"type": "bad_reply", "tier": tier, "head": reply[:200]})
+                    emit({"type": "bad_reply", "tier": tier, "head": reply[:200], "finish": getattr(llm, "last_finish", "")})
                     if bad_run >= MAX_BAD_CONSEC:
                         abort = f"{bad_run} unparseable replies in a row"
                         break
-                    hint = ("Your write action could not be parsed. Send the JSON line with only action and path, then the file "
-                            "content raw between <<<FILE and FILE>>>.") if _looks_like_broken_write(reply) else "Reply with one valid JSON action object."
+                    hint = ("Call one of the tools (run, write, edit, search, finish). Do not answer in prose." if tool_mode else
+                            "Your write action could not be parsed. Send the JSON line with only action and path, then the file "
+                            "content raw between <<<FILE and FILE>>>.") if (tool_mode or _looks_like_broken_write(reply)) else "Reply with one valid JSON action object."
                     msgs.append({"role": "user", "content": hint})
                     continue
                 bad_run = 0
@@ -496,7 +631,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     loop_warn += (f"\n(Only {left} step(s) left. If your fix and your new test pass, call finish NOW "
                                   "instead of polishing; unfinished work counts as a failure.)")
                 recent.append(sig)
-                parts = []
+                parts, obs_raw = [], []
                 for k, act in enumerate(acts):
                     a = act["action"]
                     stop = False
@@ -536,9 +671,11 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                         rejects += 1
                         stop = True
                     else:
-                        obs = f"unknown action {a!r}"
+                        obs = (f"unknown action {a!r}. The only actions are: {VALID_ACTIONS}. To read or search files use run with a shell command, "
+                               "e.g. {\"action\":\"run\",\"cmd\":\"grep -n chunked boltons/iterutils.py\"} or {\"action\":\"run\",\"cmd\":\"sed -n '100,160p' boltons/iterutils.py\"}.")
                         stop = True
                     emit({"type": "step", "tier": tier, "action": a, "detail": _detail(act), "obs": obs[:1500]})
+                    obs_raw.append(obs)
                     parts.append(obs if len(acts) == 1 else f"[{k + 1}/{len(acts)} {a}] {obs}")
                     if stop:
                         if k + 1 < len(acts):
@@ -547,6 +684,26 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 if rejects >= MAX_REJECTS:
                     abort = f"{rejects} rejected finish attempts"
                     break
+                read_streak = read_streak + 1 if is_reading(acts) else 0
+                if read_streak == NUDGE_AFTER:
+                    loop_warn += (f"\n(You have only been reading for {read_streak} steps. Stop exploring. In your NEXT reply, write a NEW test "
+                                  "file that reproduces the issue (use the issue's own example) and run it, as two actions in one reply.)")
+                elif read_streak >= PUSH_AFTER and (read_streak - PUSH_AFTER) % 3 == 0:
+                    loop_warn += (f"\n(You have read for {read_streak} steps without changing anything. You now know enough: edit the source with "
+                                  "your best fix, add your test, and run both in one reply. A wrong attempt that fails teaches more than more reading.)")
+                if tool_mode:  # every tool call needs its own result message, in order
+                    cap = max(1500, MAX_FEEDBACK // max(1, len(calls)))
+                    for i, c in enumerate(calls):
+                        if i < len(obs_raw):
+                            text = obs_raw[i]
+                        elif i >= MAX_ACTIONS:
+                            text = f"(skipped: at most {MAX_ACTIONS} actions per reply)"
+                        else:
+                            text = "(skipped because an earlier action failed)"
+                        if len(text) > cap:
+                            text = text[:cap // 2] + "\n...[clipped: read smaller ranges]...\n" + text[-(cap // 2):]
+                        msgs.append({"role": "tool", "tool_call_id": c["id"], "content": text + (loop_warn if i == len(calls) - 1 else "")})
+                    continue
                 feedback = "\n".join(parts)
                 if len(feedback) > MAX_FEEDBACK:
                     feedback = feedback[:MAX_FEEDBACK // 2] + "\n...[clipped: read smaller ranges]...\n" + feedback[-MAX_FEEDBACK // 2:]
@@ -558,7 +715,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 res, _ = attempt_finish(tier, auto, auto=True)
                 if res:
                     return res
-            tried = "\n".join(m["content"][:300] for m in msgs[-5:] if m["role"] == "user")
+            tried = "\n".join((m.get("content") or "")[:300] for m in msgs[-5:] if m["role"] in ("user", "tool"))
             notes += (f"\n\nA previous attempt with tier '{tier}' did not succeed ({abort or 'ran out of steps'}). "
                       f"Its last observations were:\n{tried}\nThe repository has been reset to its original state. "
                       "Take a fresh, careful look at the root cause.")

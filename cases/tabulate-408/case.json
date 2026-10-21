@@ -1,0 +1,17 @@
+{
+ "id": "tabulate-408",
+ "repo": "astanin/python-tabulate",
+ "base_sha": "2939dc1d17e13a71c256042d9ad46bfd9d8a07b8",
+ "fix_sha": "3aa568c66987dbc97c079c6a2e4bd0ad362a949f",
+ "issue": 408,
+ "title": "Asciidoc format emits trailing whitespace",
+ "issue_url": "https://github.com/astanin/python-tabulate/issues/408",
+ "test_files": [
+  "test/test_output.py",
+  "test/test_regression.py"
+ ],
+ "src_files": [
+  "README.md",
+  "tabulate/__init__.py"
+ ]
+}

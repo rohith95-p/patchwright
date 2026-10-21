@@ -54,11 +54,25 @@ def _enclosing_class(lines: list[str], i: int) -> str | None:
     return None
 
 
-def relevant_excerpts(root: Path, issue: str, max_chars: int = 6000, window: int = 40, top: int = 3) -> str:
+def _block_end(lines: list[str], i: int, cap: int = 70) -> int:
+    """Index one past the end of the def/class starting at line i (by indentation), at most `cap` lines long."""
+    indent = len(lines[i]) - len(lines[i].lstrip())
+    end = i + 1
+    while end < len(lines) and end - i < cap:
+        s = lines[end]
+        if s.strip() and (len(s) - len(s.lstrip())) <= indent and not s.lstrip().startswith((")", "]", "}", "@")):
+            break
+        end += 1
+    return max(end, min(i + 12, len(lines)))
+
+
+def relevant_excerpts(root: Path, issue: str, max_chars: int = 7000, top: int = 4) -> str:
+    """The definitions the issue is about. Names the issue spells exactly (RRCache.popitem) score highest. Plain lowercase
+    names (daterange, asciidoc) are found by matching every word of the issue against the project's function and class
+    names, keeping only words that point at a handful of symbols so that common words like "format" do not match everything."""
     names = identifiers(issue)
-    if not names:
-        return ""
-    hits = []
+    tokens = {t.lower() for t in re.findall(r"[A-Za-z_][A-Za-z0-9_]{4,}", issue)} - STOP
+    defs = []  # (file, line index, lines, name, class)
     for p in root.rglob("*.py"):
         rel = p.relative_to(root)
         if set(rel.parts) & SKIP_DIRS or "test" in p.name.lower() or any("test" in part.lower() for part in rel.parts[:-1]):
@@ -71,19 +85,35 @@ def relevant_excerpts(root: Path, issue: str, max_chars: int = 6000, window: int
             continue
         for i, line in enumerate(lines):
             m = re.match(r"\s*(class|def)\s+(\w+)", line)
-            if not m or m.group(2) not in names:
-                continue
-            kind, name = m.groups()
-            cls = _enclosing_class(lines, i) if kind == "def" else None
-            score = names[name] + (names.get(cls, 0) if cls else 0)
+            if m:
+                defs.append((rel, i, lines, m.group(2), _enclosing_class(lines, i) if m.group(1) == "def" else None))
+    if not defs:
+        return ""
+    lower = [d[3].lower().strip("_") for d in defs]
+    rare = {}
+    for t in tokens:
+        n = sum(1 for nl in lower if t == nl or (len(t) >= 6 and t in nl))
+        if 0 < n <= 3:
+            rare[t] = n
+    stems = {d[0].stem.lower() for d in defs}
+    hits = []
+    for (rel, i, lines, name, cls), nl in zip(defs, lower):
+        score = names.get(name, 0) + (names.get(cls, 0) if cls else 0)
+        if not score:
+            if nl in rare:
+                score = 2.5
+            elif any(t in nl for t in rare if len(t) >= 6):
+                score = 1.5
+        if score and rel.stem.lower() in tokens & stems:
+            score += 0.5  # the issue also names the module (boltons.timeutils)
+        if score and not name.startswith("__"):
             hits.append((score, rel.as_posix(), i, lines))
     out, used, seen = [], 0, set()
     for score, rel, i, lines in sorted(hits, key=lambda h: -h[0]):
         if (rel, i) in seen or len(seen) >= top:
             continue
         seen.add((rel, i))
-        start = max(i - 1, 0)
-        chunk = f"--- {rel} (line {i + 1}) ---\n" + "\n".join(lines[start:i + window])
+        chunk = f"--- {rel} (line {i + 1}) ---\n" + "\n".join(lines[max(i - 1, 0):_block_end(lines, i)])
         if used + len(chunk) > max_chars:
             break
         out.append(chunk)

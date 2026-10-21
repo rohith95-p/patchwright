@@ -1,0 +1,15 @@
+{
+ "id": "toolz-602",
+ "repo": "pytoolz/toolz",
+ "base_sha": "1fb2b9f1b69ab664a264944f4eafc290acce127d",
+ "fix_sha": "5a7e078c941c990dcaca53ac6920e5d5c0b1475f",
+ "issue": 602,
+ "title": "`partition_all` outputs padding tokens on sequences with inaccurate `__len__`",
+ "issue_url": "https://github.com/pytoolz/toolz/issues/602",
+ "test_files": [
+  "toolz/tests/test_itertoolz.py"
+ ],
+ "src_files": [
+  "toolz/itertoolz.py"
+ ]
+}

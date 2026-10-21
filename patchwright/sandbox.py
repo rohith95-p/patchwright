@@ -67,6 +67,10 @@ class Sandbox:
         # A real project must be importable for its tests to run: install it in editable mode, best effort.
         if self.exec("test -f pyproject.toml -o -f setup.py", timeout=20)[0] == 0:
             self.exec("pip install -q -e . 2>&1 | tail -2", timeout=300)
+        # Older projects ship conftest hooks written for an older pytest ("declared in the hookimpl but can not be found in the
+        # hookspec"); a current pytest cannot even collect their tests. Fall back to the last pytest that still accepts them.
+        if "hookimpl" in self.exec("python -m pytest --collect-only -q 2>&1 | tail -5", timeout=120)[1]:
+            self.exec("pip install -q 'pytest<8' 2>&1 | tail -1", timeout=240)
 
     def prove_fails_without_fix(self, repro_cmd: str) -> tuple[bool, str]:
         """Revert changes to tracked source files (keeping new test files), run the repro test, restore the fix."""

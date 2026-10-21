@@ -1,0 +1,15 @@
+{
+ "id": "boltons-240",
+ "repo": "mahmoud/boltons",
+ "base_sha": "913aef46f58b9869cd93684917f5c231fba42b4a",
+ "fix_sha": "4457decc614ee795804f2bb9c44ae9be30831d53",
+ "issue": 240,
+ "title": "Why IndexedSet not update the index of items?",
+ "issue_url": "https://github.com/mahmoud/boltons/issues/240",
+ "test_files": [
+  "tests/test_setutils.py"
+ ],
+ "src_files": [
+  "boltons/setutils.py"
+ ]
+}

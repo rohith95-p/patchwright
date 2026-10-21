@@ -1,0 +1,15 @@
+{
+ "id": "boltons-252",
+ "repo": "mahmoud/boltons",
+ "base_sha": "47e0c3bfcbd3291a1366f34069f23e43659717cd",
+ "fix_sha": "41a926e64ff69e152d14dff87a2766b27ae2b53b",
+ "issue": 252,
+ "title": "setutils.IndexedSet has symmetric difference()",
+ "issue_url": "https://github.com/mahmoud/boltons/issues/252",
+ "test_files": [
+  "tests/test_setutils.py"
+ ],
+ "src_files": [
+  "boltons/setutils.py"
+ ]
+}

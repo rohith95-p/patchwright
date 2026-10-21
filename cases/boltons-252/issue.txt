@@ -1,0 +1,11 @@
+setutils.IndexedSet has symmetric difference()
+
+```python
+>>> set('abc') - set('bcd')
+{'a'}
+>>> IndexedSet('abc') - set('bcd')
+IndexedSet(['a'])
+>>> set('abc') - IndexedSet('bcd')
+IndexedSet(['d'])
+```
+I would expect this to be due to `__sub__ = __rsub__ = difference` in the source code.

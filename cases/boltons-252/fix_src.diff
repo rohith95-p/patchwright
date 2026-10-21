@@ -1,0 +1,19 @@
+diff --git a/boltons/setutils.py b/boltons/setutils.py
+index 11d2ffb..17297bd 100644
+--- a/boltons/setutils.py
++++ b/boltons/setutils.py
+@@ -305,9 +305,13 @@ class IndexedSet(MutableSet):
+ 
+     __or__  = __ror__  = union
+     __and__ = __rand__ = intersection
+-    __sub__ = __rsub__ = difference
++    __sub__ = difference
+     __xor__ = __rxor__ = symmetric_difference
+ 
++    def __rsub__(self, other):
++        vals = [x for x in other if x not in self]
++        return type(other)(vals)
++
+     # in-place set operations
+     def update(self, *others):
+         "update(*others) -> add values from one or more iterables"

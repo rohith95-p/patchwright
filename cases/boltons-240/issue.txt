@@ -1,0 +1,5 @@
+Why IndexedSet not update the index of items?
+
+What is the motivation of not updating the current index of items when they are removed? It's this a bug? Because i starting using IndexedSet to pop items from a list that i have and i start get index of range errors.
+
+https://github.com/mahmoud/boltons/blob/bf8a65942cd8078dba7dc45543ae0923fe2fabbc/boltons/setutils.py#L201-L209

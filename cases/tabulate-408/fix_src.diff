@@ -1,0 +1,53 @@
+diff --git a/README.md b/README.md
+index b6bb8eb..e8f47d7 100644
+--- a/README.md
++++ b/README.md
+@@ -502,10 +502,10 @@ format:
+ >>> print(tabulate(table, headers, tablefmt="asciidoc"))
+ [cols="<8,>7",options="header"]
+ |====
+-| item   |   qty 
+-| spam   |    42 
+-| eggs   |   451 
+-| bacon  |     0 
++| item   |   qty
++| spam   |    42
++| eggs   |   451
++| bacon  |     0
+ |====
+ 
+ ```
+diff --git a/tabulate/__init__.py b/tabulate/__init__.py
+index b0810a9..0d2d59d 100644
+--- a/tabulate/__init__.py
++++ b/tabulate/__init__.py
+@@ -278,12 +278,14 @@ def _asciidoc_row(is_header, *args):
+ 
+         # generate the list of entries in the table header field
+ 
+-        return "[{}]\n|====".format(",".join(header_list))
++        line = "[{}]\n|====".format(",".join(header_list))
++        return line.rstrip()
+ 
+     if len(args) == 2:
+         # two arguments are passed if called in the context of aboveline
+         # print the table header with column widths and optional header tag
+-        return make_header_line(False, *args)
++        line = make_header_line(False, *args)
++        return line.rstrip()
+ 
+     elif len(args) == 3:
+         # three arguments are passed if called in the context of dataline or headerline
+@@ -293,9 +295,10 @@ def _asciidoc_row(is_header, *args):
+         data_line = "|" + "|".join(cell_values)
+ 
+         if is_header:
+-            return make_header_line(True, colwidths, colaligns) + "\n" + data_line
++            line = make_header_line(True, colwidths, colaligns) + "\n" + data_line
++            return line.rstrip()
+         else:
+-            return data_line
++            return data_line.rstrip()
+ 
+     else:
+         raise ValueError(

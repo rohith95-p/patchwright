@@ -1,0 +1,15 @@
+{
+ "id": "boltons-319",
+ "repo": "mahmoud/boltons",
+ "base_sha": "6c7fa3e05659fac6515f661153c89d4ad02df168",
+ "fix_sha": "8ba3a7fa0d99b73f7f43c1aed82c571b941eecea",
+ "issue": 319,
+ "title": "boltons.timeutils when start with 12 month and step=(1, 0, 0), result is wrong. because date.month start with 1, not 0",
+ "issue_url": "https://github.com/mahmoud/boltons/issues/319",
+ "test_files": [
+  "tests/test_timeutils.py"
+ ],
+ "src_files": [
+  "boltons/timeutils.py"
+ ]
+}

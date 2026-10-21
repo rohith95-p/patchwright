@@ -1,0 +1,15 @@
+{
+ "id": "boltons-337",
+ "repo": "mahmoud/boltons",
+ "base_sha": "475462811ea4f9dea23c8af4cc2b6ead2dc03845",
+ "fix_sha": "0341ab3d79e6430c0e6a4149df9c92679988a534",
+ "issue": 337,
+ "title": "Non-empty `dictutils.OMD` cannot be loaded from `pickle`",
+ "issue_url": "https://github.com/mahmoud/boltons/issues/337",
+ "test_files": [
+  "tests/test_dictutils.py"
+ ],
+ "src_files": [
+  "boltons/dictutils.py"
+ ]
+}
