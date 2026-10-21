@@ -9,6 +9,13 @@ Built for the Nebius x NVIDIA Global AI Hackathon, Coding and Agentic Engineerin
 **Demo video:** https://youtu.be/eNE4-9LeZ0c (narration is synthesized speech)  
 **Real pull request, CI green:** https://github.com/rohith95-p/cachetools-bugfix-demo/pull/1
 
+### At a glance
+
+- **It proves its fixes.** A fix counts only if a new test fails without it, passes with it, the existing suite stays green, no test was edited and the project's own lint and type checks pass.
+- **It is cheap.** On the 20-bug benchmark the final code fixed **18 of 20 for $0.18 in total, about one cent per fixed bug**, and Super alone made 16 of the 18 fixes.
+- **A real pull request, all CI green.** [cachetools-bugfix-demo#1](https://github.com/rohith95-p/cachetools-bugfix-demo/pull/1): a two-line fix and a regression test, with proof and sources.
+- **Tavily and Nemotron 3 on Nebius are wired into the harness**, with every query and source visible. Real-library results are further down, under [Exploratory results](#exploratory-results-on-real-library-issues-patchwright-rw-and-what-they-taught-us).
+
 > Benchmark numbers are filled in from real Nebius runs only. Until the table under [Results](#results) is filled in, there are no claims about accuracy or cost.
 
 ## The problem
@@ -146,25 +153,6 @@ Each has visible tests that **pass on the buggy code** (so they do not reveal th
 
 This is a synthetic set built for fast, repeatable comparison. It is **not SWE-bench**; do not read the results as SWE-bench scores. Model output varies from run to run, so the benchmark supports `--repeats` and reports averages.
 
-## Patchwright-RW: real issues from real libraries, and what it taught us
-
-The toy benchmark is self-contained, so we also built **Patchwright-RW** (`cases/`, `bench/rw_bench.py`): closed issues from `boltons`, `python-tabulate` and `toolz`, each judged by the project's own upstream test, which the agent never sees. The agent gets a fresh one-commit copy of the repository at the parent of the fixing commit, so the fix is not in its history. We checked every case (`python -m bench.rw_validate`, no model calls): the upstream test must fail on the base commit and pass with the upstream fix. Of 10 candidates, 3 were dropped by that check (two did not fail before the fix, one still failed after it).
-
-**Result with the final code: 3 truly fixed out of 14 runs (2 batches of the same 7 cases, one run each), about $0.03 per fixed bug when it works and about $0.11-0.26 per run that fails.** `boltons-252` was fixed in both batches, `boltons-319` in one, and `toolz-602` was accepted by our harness but rejected by the upstream test in both. The raw runs, with every failure, are in `results/rw/`. This is a small, single-run sample: do not read 3/14 as a precise rate. It is far below the toy benchmark, and that gap is the honest picture of where the agent stands on real code.
-
-We also tried **Ultra only on NVIDIA's own hosted endpoint** (Super returns 404 on our account there, so the tiered setup cannot run): 0 truly fixed in the first 11 runs, then we stopped the run to save time; the raw runs are `results/rw/nvidia-ultra-only-partial.jsonl`. That fits the Nebius data, where Super alone made 16 of the 18 toy fixes.
-
-Getting from 0/7 to there is the useful part, because every step was a real-world failure the toy bugs never showed (all fixed in Patchwright itself):
-
-| What the first real-world runs exposed | The fix |
-|---|---|
-| **Nemotron 3 reasons by default, and in an agent loop with a large prompt that reasoning used the whole reply budget** (finish_reason `length`, empty answer, 20-30 s per step). | Reasoning is off in the loop (`PW_THINK=1` turns it back on). The same request went from 3,000 tokens and 28 s with no answer to 37 tokens and 1 s. |
-| Models invented action names (`read`, `grep`, `bash`) and field names, and a custom JSON protocol is fragile. | **Native tool calling** (`run`, `write`, `edit`, `search`, `finish`) with `tool_choice=required`, so there is no format to get wrong. Unknown names are still mapped when the meaning is obvious. |
-| The model read a 1,400-line file in chunks and never edited anything. | Better localization: the harness matches every issue word against the project's function and class names (rare matches only) and hands over whole function bodies up front, plus nudges after 3 read-only steps. |
-| The old suite already failed on Python 3.11 (`ecoutils` could not even be collected), so no fix could ever "pass the whole suite". | A **baseline run** before any change; a fix is judged on the failures it adds. |
-| Old projects ship `conftest.py` hooks that current pytest cannot load. | The sandbox falls back to `pytest<8` automatically. |
-| A local copy of a real project was treated like a toy repo (half the token budget, no research). | `source_url` tells the agent which public project the copy came from. |
-
 ## Results
 
 
@@ -225,6 +213,25 @@ With multi-action turns, tiered costs $0.024 per fixed bug and Ultra-only $0.029
 - **A passing self-written test is strong evidence, not a guarantee.** The hidden tests caught 2 fixes that the agent's own checks accepted (1 of 40 tiered runs, 1 of 40 Ultra-only runs).
 - **Earlier runs had two harness bugs** (a model's own new test file wrongly rejected after a failed review, and a working fix not counted when the model never said "finish"). They were found from saved traces, fixed with regression tests, and every strategy was re-run from scratch. The discarded runs are not used anywhere in this table.
 
+
+## Exploratory results on real library issues (Patchwright-RW), and what they taught us
+
+The toy benchmark is self-contained, so we also built **Patchwright-RW** (`cases/`, `bench/rw_bench.py`): closed issues from `boltons`, `python-tabulate` and `toolz`, each judged by the project's own upstream test, which the agent never sees. The agent gets a fresh one-commit copy of the repository at the parent of the fixing commit, so the fix is not in its history. We checked every case (`python -m bench.rw_validate`, no model calls): the upstream test must fail on the base commit and pass with the upstream fix. Of 10 candidates, 3 were dropped by that check (two did not fail before the fix, one still failed after it).
+
+**Result with the final code: 3 truly fixed out of 14 runs (2 batches of the same 7 cases, one run each), about $0.03 per fixed bug when it works and about $0.11-0.26 per run that fails.** `boltons-252` was fixed in both batches, `boltons-319` in one, and `toolz-602` was accepted by our harness but rejected by the upstream test in both. The raw runs, with every failure, are in `results/rw/`. This is a small, single-run sample: do not read 3/14 as a precise rate. It is far below the toy benchmark, and that gap is the honest picture of where the agent stands on real code.
+
+We also tried **Ultra only on NVIDIA's own hosted endpoint** (Super returns 404 on our account there, so the tiered setup cannot run): 0 truly fixed in the first 11 runs, then we stopped the run to save time; the raw runs are `results/rw/nvidia-ultra-only-partial.jsonl`. That fits the Nebius data, where Super alone made 16 of the 18 toy fixes.
+
+Getting from 0/7 to there is the useful part, because every step was a real-world failure the toy bugs never showed (all fixed in Patchwright itself):
+
+| What the first real-world runs exposed | The fix |
+|---|---|
+| **Nemotron 3 reasons by default, and in an agent loop with a large prompt that reasoning used the whole reply budget** (finish_reason `length`, empty answer, 20-30 s per step). | Reasoning is off in the loop (`PW_THINK=1` turns it back on). The same request went from 3,000 tokens and 28 s with no answer to 37 tokens and 1 s. |
+| Models invented action names (`read`, `grep`, `bash`) and field names, and a custom JSON protocol is fragile. | **Native tool calling** (`run`, `write`, `edit`, `search`, `finish`) with `tool_choice=required`, so there is no format to get wrong. Unknown names are still mapped when the meaning is obvious. |
+| The model read a 1,400-line file in chunks and never edited anything. | Better localization: the harness matches every issue word against the project's function and class names (rare matches only) and hands over whole function bodies up front, plus nudges after 3 read-only steps. |
+| The old suite already failed on Python 3.11 (`ecoutils` could not even be collected), so no fix could ever "pass the whole suite". | A **baseline run** before any change; a fix is judged on the failures it adds. |
+| Old projects ship `conftest.py` hooks that current pytest cannot load. | The sandbox falls back to `pytest<8` automatically. |
+| A local copy of a real project was treated like a toy repo (half the token budget, no research). | `source_url` tells the agent which public project the copy came from. |
 
 ## Safety
 
