@@ -12,6 +12,8 @@ import json
 import shutil
 from pathlib import Path
 
+from patchwright.pricing import row_cost
+
 ROOT = Path(__file__).resolve().parent.parent
 START, END = "<!-- RESULTS:START -->", "<!-- RESULTS:END -->"
 NAMES = {"tiered": "Tiered (Super, then Ultra)", "routed": "Routed (Nano triage decides)", "super": "Super only", "ultra": "Ultra only"}
@@ -33,7 +35,7 @@ def summarise(rows: list[dict]) -> dict:
     n = len(rows)
     fixed = sum(1 for r in rows if r.get("hidden_ok"))
     tokens = sum((r.get("prompt_tokens") or 0) + (r.get("completion_tokens") or 0) for r in rows)
-    cost = sum(r.get("cost_usd") or 0 for r in rows)
+    cost = sum(row_cost(r) for r in rows)
     return {"runs": n, "fixed": fixed, "rate": 100 * fixed / n if n else 0.0,
             "avg_s": sum(r.get("seconds") or 0 for r in rows) / n if n else 0.0,
             "tokens": tokens, "cost": cost, "cost_per_fix": cost / fixed if fixed else None,
@@ -70,7 +72,7 @@ def breakeven(data: dict[str, list[dict]], common: set) -> str | None:
 def markdown(stats: dict, n_common: int, total_runs: dict, sens: str | None = None) -> str:
     out = [f"Compared on the same **{n_common} runs** for every strategy (20 bugs, up to 2 repeats each). "
            "\"Truly fixed\" means the hidden test the agent never saw also passes.", "",
-           "| Strategy | Truly fixed | Avg time per bug | Tokens | Est. cost | Est. cost per fixed bug |",
+           "| Strategy | Truly fixed | Avg time per bug | Tokens | Cost | Cost per fixed bug |",
            "|---|---|---|---|---|---|"]
     for c in ("tiered", "routed", "super", "ultra"):
         if c not in stats:
@@ -105,7 +107,7 @@ def markdown(stats: dict, n_common: int, total_runs: dict, sens: str | None = No
         notes.append(sens)
     notes.append("Average times are only loosely comparable: the strategies ran at the same time with different numbers of parallel jobs, "
                  "so each was slowed by a different amount of shared load.")
-    notes.append("Dollar figures use the estimated prices in `patchwright/prices.json`, not official Nebius billing. "
+    notes.append("Dollar figures are tokens times the per-token prices in `patchwright/prices.json` (Super and Ultra read from the Nebius usage page; Nano's price is an estimate). "
                  "The agent is not deterministic, so repeat the benchmark before reading small differences as real.")
     return "\n".join(out) + "\n\n" + "\n\n".join(notes) + "\n"
 

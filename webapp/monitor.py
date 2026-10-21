@@ -11,6 +11,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+from patchwright.pricing import row_cost
+
 ROOT = Path(__file__).resolve().parent.parent
 RUNS = ROOT / "runs"
 MAP_FILE = RUNS / "monitor_map.json"
@@ -102,7 +104,7 @@ def _rows_for(task: dict, log_path: Path) -> list[dict]:
             r = json.loads(line)
             rows.append({"id": r["id"], "rep": r.get("rep", 0), "fixed": bool(r.get("hidden_ok")), "tier": r.get("tier"),
                          "steps": r.get("steps"), "seconds": r.get("seconds"), "error": r.get("error"),
-                         "tokens": (r.get("prompt_tokens") or 0) + (r.get("completion_tokens") or 0), "cost": r.get("cost_usd") or 0})
+                         "tokens": (r.get("prompt_tokens") or 0) + (r.get("completion_tokens") or 0), "cost": row_cost(r)})
     return rows
 
 

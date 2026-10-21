@@ -213,3 +213,32 @@ def test_braces_inside_file_content_are_not_mistaken_for_actions():
 def test_parse_actions_empty_and_prose():
     from patchwright.agent import _parse_actions
     assert _parse_actions("") == [] and _parse_actions("I will look at the file now.") == []
+
+
+# ---- Tavily: only library/version style errors are researched ----
+@pytest.mark.parametrize("out,expect", [
+    ("ModuleNotFoundError: No module named 'yaml'", "yaml"),
+    ("ImportError: cannot import name 'soft_unicode' from 'markupsafe'", "soft_unicode"),
+    ("AttributeError: module 'numpy' has no attribute 'float'", "numpy"),
+    ("TypeError: read_csv() got an unexpected keyword argument 'squeeze'", "squeeze"),
+    ("DeprecationWarning: datetime.utcnow() is deprecated and scheduled for removal", "utcnow"),
+])
+def test_library_errors_are_researched(out, expect):
+    from patchwright.tools import research_query
+    q = research_query("Traceback...\n" + out)
+    assert q and expect in q
+
+
+@pytest.mark.parametrize("out", [
+    "AssertionError: Expected 4.0 but got 6.0", "ZeroDivisionError: division by zero", "KeyError: 'a'",
+    "TypeError: unsupported operand type(s) for +: 'int' and 'str'", "AttributeError: 'NoneType' object has no attribute 'x'", "",
+])
+def test_the_agents_own_errors_are_not_researched(out):
+    from patchwright.tools import research_query
+    assert research_query(out) is None
+
+
+def test_format_results_and_empty():
+    from patchwright.tools import format_results
+    assert format_results([]) == "[no results]"
+    assert "http://x" in format_results([{"title": "t", "url": "http://x", "content": "c"}])

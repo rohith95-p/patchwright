@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from .config import get_model
 from .llm import LLM
 from .sandbox import Sandbox
-from .tools import web_search
+from .tools import format_results, research_query, search
 
 TIER_ORDER = ["super", "ultra"]  # nano only triages
 STEPS = {"super": 14, "ultra": 18, "nano": 10}
@@ -23,6 +23,8 @@ MAX_SECONDS = int(os.getenv("RUN_MAX_SECONDS", "900"))  # wall-clock cap per run
 MAX_BAD_CONSEC = 3   # consecutive unparseable replies before giving up on a tier
 MAX_REJECTS = 3      # rejected "finish" attempts before giving up on a tier
 MAX_SAME_ACTION = 4  # identical action repeated this many times means the model is stuck
+MAX_RESEARCH = int(os.getenv("TAVILY_MAX_PER_RUN", "4"))  # Tavily lookups per run (errors, related discussion, model requests)
+REMOTE_RESEARCH = os.getenv("TAVILY_CONTEXT", "1") == "1"  # look up related discussion for real remote repositories
 MAX_ACTIONS = 3      # actions executed per model reply; each extra action saves a whole model call
 KEEP_FULL = 6        # most recent messages kept verbatim; older ones are clipped to save tokens
 
@@ -268,10 +270,30 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                 return res
             tiers = ["ultra"] if info["difficulty"] == "hard" else ["super", "ultra"]
             emit({"type": "route", "valid": True, "difficulty": info["difficulty"], "tiers": tiers, "why": info["reason"]})
+        state = {"reviewed": False}
+        sources: list[dict] = []
+        asked: set[str] = set()
+
+        def research(query: str, kind: str) -> str:
+            """One Tavily lookup. The query and its sources are recorded for the interface and the pull-request text."""
+            if not query or query in asked or len(asked) >= MAX_RESEARCH or not os.getenv("TAVILY_API_KEY"):
+                return ""
+            asked.add(query)
+            results = search(query)
+            emit({"type": "research", "kind": kind, "query": query,
+                  "sources": [{"title": r["title"], "url": r["url"]} for r in results],
+                  "error": "" if results else (getattr(search, "last_error", "") or "no results")})
+            sources.extend({"query": query, "title": r["title"], "url": r["url"]} for r in results)
+            return format_results(results) if results else ""
+
+        if REMOTE_RESEARCH and repo_url.startswith("http"):  # a real repository: look for related public discussion
+            slug = repo_url.rstrip("/").split("github.com/")[-1].removesuffix(".git")
+            ctx = research(f"{slug} {issue[:220]}", "related discussion")
+            if ctx:
+                hint += "\n\nPossibly related web results (Tavily; may be about a different problem):\n" + ctx[:1500]
         notes = ""
         steps = 0
         bad = 0
-        state = {"reviewed": False}
 
         def attempt_finish(tier: str, act: dict, auto: bool = False) -> tuple[Result | None, str]:
             """Run every proof check. Used for the model's own `finish` and for the harness's auto-finish."""
@@ -287,7 +309,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                                       "If the review test itself contradicts the issue, finish again unchanged.")
             if not ok:
                 return None, why
-            res = Result(True, tier, steps, act.get("summary", ""), sb.diff(), [], time.time() - t0, None, bad)
+            res = Result(True, tier, steps, act.get("summary", ""), sb.diff(), list(sources), time.time() - t0, None, bad)
             res.hidden_ok = post_check(sb) if post_check else None
             emit({"type": "done", "solved": True, "tier": tier, "steps": steps, "summary": res.summary, "auto": auto,
                   "diff": res.diff, "repro_cmd": act.get("repro_test_cmd"), "suite_cmd": act.get("suite_cmd")})
@@ -346,6 +368,9 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                         code, out = sb.exec(str(act.get("cmd") or "true"))
                         obs = f"exit={code}\n{out}"
                         stop = code != 0
+                        found = research(research_query(out) or "", "error")
+                        if found:
+                            obs += "\n\n[Web research via Tavily for this error]\n" + found[:1500]
                     elif a == "write":
                         try:
                             if not act.get("path") or act.get("content") is None:
@@ -356,7 +381,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                             obs = f"write failed: {e}"
                             stop = True
                     elif a == "search":
-                        obs = web_search(act.get("query", ""))
+                        obs = research(str(act.get("query") or ""), "asked by the model") or "[no web results: repeated query, limit reached or search unavailable]"
                     elif a == "finish":
                         res, why = attempt_finish(tier, act)
                         if res:

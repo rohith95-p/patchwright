@@ -289,3 +289,75 @@ def test_batch_is_capped_at_max_actions(repo):
     agent.run_agent(llm, url, task["issue"], on_event=evs.append, tiers=["super"])
     ran = [e["detail"] for e in evs if e["type"] == "step" and "marker" in (e.get("detail") or "")]
     assert ran == [f"echo marker{i}" for i in range(agent.MAX_ACTIONS)]
+
+
+# ---- Tavily wired into the loop (search is faked; no network, no credits) ----
+def fake_search(calls):
+    def _s(query, max_results=3):
+        calls.append(query)
+        return [{"title": "PyYAML docs", "url": "https://pyyaml.org/", "content": "pip install pyyaml"}]
+    return _s
+
+
+def test_library_error_triggers_automatic_research_and_is_shown_to_the_model(repo, monkeypatch):
+    url, task = repo
+    calls, seen = [], []
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "search", fake_search(calls))
+    llm = FakeLLM([act(action="run", cmd="echo \"ModuleNotFoundError: No module named 'yaml'\"; exit 1"), act(action="run", cmd="ls")])
+    orig = llm.chat
+
+    def spy(tier, messages, **kw):
+        seen.append(messages[-1]["content"])
+        return orig(tier, messages, **kw)
+    llm.chat = spy
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert len(calls) == 1 and "yaml" in calls[0]
+    ev = next(e for e in evs if e["type"] == "research")
+    assert ev["kind"] == "error" and ev["sources"][0]["url"] == "https://pyyaml.org/"
+    assert any("Web research via Tavily" in m and "pip install pyyaml" in m for m in seen)
+
+
+def test_own_assertion_errors_cause_no_search_and_repeats_are_not_searched_twice(repo, monkeypatch):
+    url, task = repo
+    calls = []
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "search", fake_search(calls))
+    err = "echo \"ModuleNotFoundError: No module named 'yaml'\""
+    llm = FakeLLM([act(action="run", cmd="echo 'AssertionError: Expected 4 got 6'; exit 1"), act(action="run", cmd=err + "; echo a"),
+                   act(action="run", cmd=err + "; echo b")])
+    events_of(llm, url, task["issue"], ["super"])
+    assert len(calls) == 1, "assertion errors are not researched, and the same query is only searched once"
+
+
+def test_model_requested_search_is_recorded_as_a_source_and_shown_in_the_proof_card(repo, monkeypatch):
+    from patchwright.pr import proof_card
+    url, task = repo
+    calls = []
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "search", fake_search(calls))
+    llm = FakeLLM([act(action="search", query="python average of list")] + SOLVE)
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert res.solved and [e["kind"] for e in evs if e["type"] == "research"] == ["asked by the model"]
+    card = proof_card(task["issue"], res, llm.usage.by_tier, {"super": "m"})
+    assert "Web sources consulted (Tavily)" in card and "https://pyyaml.org/" in card
+
+
+def test_no_research_without_a_tavily_key(repo, monkeypatch):
+    url, task = repo
+    calls = []
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    monkeypatch.setattr(agent, "search", fake_search(calls))
+    events_of(FakeLLM([act(action="run", cmd="echo \"ModuleNotFoundError: No module named 'yaml'\"")]), url, task["issue"], ["super"])
+    assert calls == []
+
+
+def test_research_budget_per_run_is_capped(repo, monkeypatch):
+    url, task = repo
+    calls = []
+    monkeypatch.setenv("TAVILY_API_KEY", "test-key")
+    monkeypatch.setattr(agent, "search", fake_search(calls))
+    monkeypatch.setattr(agent, "MAX_RESEARCH", 2)
+    llm = FakeLLM([act(action="run", cmd=f"echo \"ModuleNotFoundError: No module named 'm{i}'\"") for i in range(6)])
+    events_of(llm, url, task["issue"], ["super"])
+    assert len(calls) == 2

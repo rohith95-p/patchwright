@@ -209,6 +209,7 @@ function evHTML(e) {
   if (e.type === "tier_start") return `<div class="ev" style="--c:${c}">${head("Starting", `<span class="mono" style="color:var(--mute)">${esc(e.model)}</span>`)}</div>`;
   if (e.type === "escalate") return `<div class="ev esc">${head("Escalating", `<span>${TIERS[e.from].name} could not finish, handing the original problem to ${TIERS[e.to].name}</span>`)}</div>`;
   if (e.type === "review") return `<div class="ev verify ${e.ok ? "ok" : "no"}">${head(e.ok ? "Edge-case review passed" : "Edge-case review found a problem")}${e.ok ? "" : `<pre>${esc((e.why || "").slice(0, 600))}</pre>`}</div>`;
+  if (e.type === "research") return `<div class="ev" style="--c:var(--brand)">${head("Web research (Tavily)", `<span class="pill">${esc(e.kind)}</span>`)}<pre>${esc(e.query)}</pre>${(e.sources || []).length ? `<div style="margin-top:6px;font-size:13px">${e.sources.map(s => `<div><a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer">${esc(s.title || s.url)}</a></div>`).join("")}</div>` : `<div class="hint">${esc(e.error || "no results")}</div>`}</div>`;
   if (e.type === "abort") return `<div class="ev esc">${head("Stopped this attempt early", `<span>${esc(e.reason)}. Stopping early saves tokens.</span>`)}</div>`;
   if (e.type === "bad_reply") return `<div class="ev" style="--c:var(--warn)">${head("Unparseable reply, retrying")}</div>`;
   if (e.type === "verify") return `<div class="ev verify ${e.ok ? "ok" : "no"}">${head(e.ok ? "Proof verified" : "Finish rejected", "")}${e.ok ? "" : `<pre>${esc((e.why || "").slice(0, 600))}</pre>`}</div>`;
@@ -230,7 +231,7 @@ const STRAT = { tiered: { name: "Tiered (Super → Ultra)", color: "var(--brand)
 async function pageBench(app) {
   const data = await api("/api/bench");
   const R = data.results, keys = ["tiered", "routed", "super", "ultra"].filter(k => R[k]);
-  const note = data.prices_are_estimates ? `<div class="banner">Dollar figures use estimated per-token prices (see <code>patchwright/prices.json</code>), not official Nebius billing. Fix rates, steps and times are measured.</div>` : "";
+  const note = data.prices_note ? `<div class="banner">Fix rates, tokens and steps are measured. Dollar figures are tokens × per-token prices: ${esc(data.prices_note)}</div>` : "";
   const rnote = R.routed ? `<div class="banner">Read the Routed row with care: Nano rated every benchmark bug easy or medium, so routed took the same path as Tiered. The gap between those two rows is run-to-run noise (about ±3 of 40), not a routing benefit.</div>` : "";
   app.innerHTML = `
     <h1>Does routing between models actually pay off?</h1>

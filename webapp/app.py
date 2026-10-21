@@ -34,7 +34,7 @@ from bench.run_bench import CONFIGS, ROUTED, build_repo
 from bench.tasks import TASKS
 from dashboard.server import results as bench_results
 from patchwright.agent import run_agent
-from patchwright.config import PRICES, PRICES_ARE_ESTIMATES, get_model, provider_name
+from patchwright.config import PRICE_NOTE, PRICES, PRICES_ARE_ESTIMATES, get_model, provider_name
 from patchwright.llm import LLM
 from patchwright.pr import proof_card
 from webapp.monitor import monitor
@@ -204,7 +204,7 @@ async def stream(rid: str):
 
 @app.get("/api/bench")
 def bench() -> dict:
-    return {"results": bench_results(), "prices_are_estimates": PRICES_ARE_ESTIMATES,
+    return {"results": bench_results(), "prices_are_estimates": PRICES_ARE_ESTIMATES, "prices_note": PRICE_NOTE,
             "tasks": [{"id": t["id"], "difficulty": t["difficulty"]} for t in TASKS]}
 
 

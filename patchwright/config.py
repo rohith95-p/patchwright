@@ -66,4 +66,6 @@ def _load_prices() -> dict:
 
 
 PRICES = _load_prices()
-PRICES_ARE_ESTIMATES = not any(os.getenv(f"{t.upper()}_PRICE_IN") for t in TIERS)
+_PRICE_FILE = json.loads(Path(__file__).with_name("prices.json").read_text(encoding="utf-8"))
+PRICE_NOTE = _PRICE_FILE.get("_note", "")
+PRICES_ARE_ESTIMATES = bool(_PRICE_FILE.get("estimated")) and not any(os.getenv(f"{t.upper()}_PRICE_IN") for t in TIERS)

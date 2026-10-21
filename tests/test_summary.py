@@ -4,11 +4,13 @@ import json
 import pytest
 
 from bench import summary
+from patchwright.pricing import row_cost
 
 
 def row(i, rep, ok, tier="super", cost=0.01, tokens=1000, solved=None, secs=10, error=None):
     r = {"id": i, "rep": rep, "hidden_ok": ok, "solved": ok if solved is None else solved, "tier": tier,
-         "cost_usd": cost, "prompt_tokens": tokens, "completion_tokens": 0, "seconds": secs}
+         "cost_usd": cost, "prompt_tokens": tokens, "completion_tokens": 0, "seconds": secs,
+         "by_tier": {tier: {"tokens": tokens}}}
     if error:
         r["error"] = error
     return r
@@ -28,7 +30,8 @@ def test_summarise_cost_per_fix_false_pass_and_tier_split():
             row("c", 0, False, "ultra", cost=0.04, solved=True), row("d", 0, False, error="boom")]
     s = summary.summarise(rows)
     assert s["fixed"] == 2 and s["at_super"] == 1 and s["false_pass"] == 1 and s["errors"] == 1
-    assert s["cost"] == pytest.approx(0.13) and s["cost_per_fix"] == pytest.approx(0.065)
+    expected = sum(row_cost(r) for r in rows)      # cost is recomputed from tokens at the current prices
+    assert expected > 0 and s["cost"] == pytest.approx(expected) and s["cost_per_fix"] == pytest.approx(expected / 2)
 
 
 def test_no_fixes_gives_no_cost_per_fix_instead_of_dividing_by_zero():
@@ -48,7 +51,7 @@ def test_markdown_contains_all_strategies_and_honest_notes():
     stats, n = summary.compare(data)
     md = summary.markdown(stats, n, {c: len(r) for c, r in data.items()})
     assert "Tiered (Super, then Ultra)" in md and "Super only" in md and "Ultra only" in md
-    assert "1/2 (50%)" in md and "rejected" in md and "not official Nebius billing" in md
+    assert "1/2 (50%)" in md and "rejected" in md and "per-token prices" in md
 
 
 def test_inject_replaces_only_between_markers_and_requires_them():
@@ -57,3 +60,11 @@ def test_inject_replaces_only_between_markers_and_requires_them():
     assert "NEW TABLE" in out and "old" not in out and out.startswith("before") and out.endswith("after\n")
     with pytest.raises(SystemExit):
         summary.inject("no markers here", "x")
+
+
+def test_row_cost_uses_real_per_tier_prices():
+    from patchwright.config import PRICES
+    r = {"prompt_tokens": 800, "completion_tokens": 200, "by_tier": {"ultra": {"tokens": 1_000_000}}}
+    pin, pout = PRICES["ultra"]
+    assert row_cost(r) == pytest.approx(0.8 * pin + 0.2 * pout)
+    assert row_cost({}) == 0 and row_cost({"by_tier": {"mystery": {"tokens": 5}}, "prompt_tokens": 1}) == 0

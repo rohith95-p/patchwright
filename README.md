@@ -31,6 +31,23 @@ The model cannot talk its way past these checks.
 
 Three strategies run on the same bugs so routing is measured, not assumed: `tiered` (Super then Ultra), `super` only and `ultra` only.
 
+## How this uses Nebius and NVIDIA
+
+- **NVIDIA Nemotron 3, three sizes, each with a job:** Nano (30B) triages and judges whether a task is a real bug report, Super (120B) writes the failing test and the patch, Ultra (550B) takes over only when Super is stuck. Model IDs are discovered from the provider (`python -m patchwright configure`), not hard-coded.
+- **Nebius Token Factory** serves all of them through its OpenAI-compatible API. Everything in the results table ran there: 4 strategies x 40 runs, plus the runs behind the findings below. Where it helped: the full benchmark ran with up to 22 sandboxes calling it in parallel with no crashed runs (our client retries transient rate limits, so we did not count them), and per-model usage and price lines made it possible to measure cost per fixed bug from real billing rather than guesses.
+- **Efficiency is the point, and it is measured.** About 75% of all tokens are prompt tokens, because the conversation is re-sent on every call. So the levers are fewer calls per fix (several actions per reply, history clipping, early stops for loops) and sending the expensive model only where it is needed (tiered escalation). The repository ships the harness and the numbers for both.
+- **Other Nebius services:** only Token Factory is used for inference. The demo can run on any Linux VM with Docker (see [DEPLOY.md](DEPLOY.md)); we have not used Serverless Endpoints or Jobs.
+- **Built during the submission period:** the whole project was created for this hackathon, starting on 2026-10-20.
+
+## How Tavily is used
+
+Tavily is used two ways: the model can ask for a search, and the harness searches on its own where it clearly helps, so the agent benefits even if the model never asks.
+
+- **Library and version errors:** when a command fails with a `ModuleNotFoundError`, `ImportError`, a missing module attribute, an unexpected keyword argument, or a `DeprecationWarning`, the harness searches Tavily for that error and shows the top results to the model. The agent's own assertion errors and ordinary runtime errors are deliberately not searched.
+- **Real repositories:** when the task is a real remote repository, the harness looks for related public discussion of the reported symptom before the model starts.
+- **Visible and bounded:** every query and its sources appear in the live run view and under "Web sources consulted" in the pull-request description. At most 4 lookups per run (`TAVILY_MAX_PER_RUN`).
+- **Honest limit:** on our 20-bug benchmark Tavily is never triggered (the bugs are self-contained, with no library errors), so the benchmark numbers do not include any Tavily effect. In 300 earlier recorded runs the model never asked for a search by itself, which is why the harness now does it. Tavily's value shows on real repositories, see the real-world demo.
+
 ## Quick start
 
 Requirements: Python 3.10+, Docker running, a Nebius Token Factory API key, optionally a Tavily key.
@@ -94,12 +111,12 @@ Real runs on Nebius Token Factory (raw files in `results/`, rebuilt with `python
 <!-- RESULTS:START -->
 Compared on the same **40 runs** for every strategy (20 bugs, up to 2 repeats each). "Truly fixed" means the hidden test the agent never saw also passes.
 
-| Strategy | Truly fixed | Avg time per bug | Tokens | Est. cost | Est. cost per fixed bug |
+| Strategy | Truly fixed | Avg time per bug | Tokens | Cost | Cost per fixed bug |
 |---|---|---|---|---|---|
-| Tiered (Super, then Ultra) | 34/40 (85%) | 124s | 2,371,016 | $1.47 | $0.043 |
-| Routed (Nano triage decides) | 37/40 (92%) | 101s | 2,155,329 | $1.24 | $0.034 |
-| Super only | 20/40 (50%) | 94s | 1,382,028 | $0.62 | $0.031 |
-| Ultra only | 33/40 (82%) | 71s | 1,817,270 | $1.61 | $0.049 |
+| Tiered (Super, then Ultra) | 34/40 (85%) | 124s | 2,371,016 | $2.02 | $0.059 |
+| Routed (Nano triage decides) | 37/40 (92%) | 101s | 2,155,329 | $1.68 | $0.045 |
+| Super only | 20/40 (50%) | 94s | 1,382,028 | $0.63 | $0.031 |
+| Ultra only | 33/40 (82%) | 71s | 1,817,270 | $2.64 | $0.080 |
 
 In the tiered runs, Super alone fixed 23 of the 34 truly fixed bugs; Ultra rescued the other 11.
 
@@ -111,12 +128,12 @@ Cost sensitivity: per fixed bug, tiered uses 42,647 Super + 26,563 Ultra tokens,
 
 Average times are only loosely comparable: the strategies ran at the same time with different numbers of parallel jobs, so each was slowed by a different amount of shared load.
 
-Dollar figures use the estimated prices in `patchwright/prices.json`, not official Nebius billing. The agent is not deterministic, so repeat the benchmark before reading small differences as real.
+Dollar figures are tokens times the per-token prices in `patchwright/prices.json` (Super and Ultra read from the Nebius usage page; Nano's price is an estimate). The agent is not deterministic, so repeat the benchmark before reading small differences as real.
 <!-- RESULTS:END -->
 
 ### What these numbers do and do not show
 
-- **Super alone is not enough** (about half the bugs); Ultra is far stronger; tiered Super-then-Ultra reaches Ultra's fix rate at a somewhat lower estimated cost. Tiered spends more tokens than Ultra-only, because Super's unsuccessful attempts still cost tokens; the saving comes from Super tokens being cheaper.
+- **Super alone is not enough** (about half the bugs). **Tiered Super-then-Ultra matches Ultra-only's fix rate (34 vs 33 of 40, within noise) at about 26% lower cost per fixed bug** ($0.059 vs $0.080): Ultra costs about 3.3x Super per token, and tiered spends the expensive tokens only on the bugs Super cannot fix. Tiered uses *more* tokens than Ultra-only (Super's unsuccessful attempts still cost tokens), so the saving exists only because Ultra is priced higher; if the two models cost the same per token, Ultra-only would be cheaper (break-even: Ultra above ~1.5x Super).
 - **Run-to-run noise is about +/-3 of 40.** Tiered and routed took identical paths (see below) yet differed on 7 of the 40 runs. Differences of a few bugs between strategies are not evidence.
 - **The router's difficulty routing did not work on this benchmark.** Nano rated every bug easy or medium, never hard, and its labels did not predict which bugs Super-only failed (it failed half of each group). A replay of the saved runs also shows that a perfect router could save only around 10-15% of the estimated cost, and that cutting Super's step budget would lose most of Super's successes (11 of its 20 successes came at the 14-step limit). We report this as a negative result rather than tune the prompt on the test bugs.
 - **The validity gate did work in a small check** (`python -m bench.validity_check`): Nano refused 10 of 10 hand-written non-bug tasks ("find all the bugs", feature requests, questions) and accepted 4 of 5 real bug reports. The one wrongly refused real bug is why the web app offers "Run anyway" when a task is refused.

@@ -12,6 +12,15 @@ import httpx
 from .agent import Result
 
 
+def sources_block(evidence: list) -> str:
+    seen, lines = set(), []
+    for s in evidence or []:
+        if s["url"] not in seen:
+            seen.add(s["url"])
+            lines.append(f"- [{s['title'] or s['url']}]({s['url']})")
+    return ("### Web sources consulted (Tavily)\n" + "\n".join(lines) + "\n\n") if lines else ""
+
+
 def proof_card(issue: str, res: Result, usage: dict, models: dict) -> str:
     cost = sum(t["cost_usd"] for t in usage.values())
     tokens = sum(t["tokens"] for t in usage.values())
@@ -30,7 +39,7 @@ def proof_card(issue: str, res: Result, usage: dict, models: dict) -> str:
 - Models: {', '.join(f'{k}={v}' for k, v in models.items())}
 - Tokens: {tokens:,}, cost: ${cost:.4f}
 
-<details><summary>Diff</summary>
+{sources_block(res.evidence)}<details><summary>Diff</summary>
 
 ```diff
 {res.diff}

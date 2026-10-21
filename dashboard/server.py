@@ -7,6 +7,8 @@ import json
 import os
 from pathlib import Path
 
+from patchwright.pricing import row_cost
+
 ROOT = Path(__file__).resolve().parent.parent
 RUNS = ROOT / "runs"
 RESULTS = ROOT / "results"
@@ -34,7 +36,7 @@ def results() -> dict:
         rows = _rows(f)
         n = len(rows) or 1
         fixed = sum(1 for r in rows if r.get("hidden_ok"))
-        cost = sum(r.get("cost_usd") or 0 for r in rows)
+        cost = sum(row_cost(r) for r in rows)
         out[cfg] = {
             "file": os.path.basename(f), "tasks": len(rows), "fixed": fixed,
             "fix_rate": round(100 * fixed / n, 1), "repeats": max((r.get("rep", 0) for r in rows), default=0) + 1,
