@@ -177,6 +177,7 @@ function consoleHTML(run, events, result, status) {
       <div class="meter"><div><b>${fmt.s(elapsed)}</b><span>elapsed</span></div><div><b>${steps}</b><span>steps</span></div><div><b>${fmt.n(u.tokens)}</b><span>tokens</span></div><div><b>${fmt.usd(u.cost_usd)}</b><span>cost${CONFIG.prices_are_estimates ? " (est.)" : ""}</span></div></div>
       <div class="pipeline">${node("nano")}<div class="arrow">→</div>${node("super")}<div class="arrow">→</div>${node("ultra")}</div>
       ${run.error ? `<div class="banner" style="background:var(--bad-soft);color:var(--bad)">${esc(run.error)}</div>` : ""}
+      ${routeEv && !routeEv.valid && !live ? `<div class="banner" style="background:var(--warn-soft)">Nano judged this is not a specific, testable bug report, so nothing more was spent. Triage can be wrong. <button class="btn ghost" id="runanyway" style="margin-left:8px;padding:6px 12px">Run anyway (tiered)</button></div>` : ""}
     </div>
     <div class="card sec"><h2>Proof</h2>${proof}${result?.summary && status === "solved" ? `<p style="margin:14px 0 0"><b>Root cause and fix.</b> ${esc(result.summary)}</p>` : ""}</div>
     ${diff ? `<div class="card sec"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px"><h2 style="margin:0">Patch</h2>${result?.proof_card ? `<button class="btn ghost" id="copycard">Copy PR description</button>` : ""}</div>${diffHTML(diff)}</div>` : ""}
@@ -184,6 +185,16 @@ function consoleHTML(run, events, result, status) {
 }
 
 function wireConsole(box) {
+  const ra = $("#runanyway", box);
+  if (ra) ra.onclick = async () => {
+    ra.disabled = true;
+    try {
+      const id = location.hash.split("/")[2], old = await api("/api/runs/" + id);
+      const body = old.example ? { example_id: old.label.replace("example: ", ""), mode: "tiered" } : { repo_url: old.label, issue: old.issue, mode: "tiered" };
+      const r = await api("/api/runs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      location.hash = "#/r/" + r.id;
+    } catch (e) { toast(e.message); ra.disabled = false; }
+  };
   const b = $("#copycard", box); if (!b) return;
   b.onclick = async () => { const id = location.hash.split("/")[2]; const r = await api("/api/runs/" + id); await navigator.clipboard.writeText(r.result.proof_card); toast("PR description copied"); };
 }

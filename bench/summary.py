@@ -67,8 +67,13 @@ def markdown(stats: dict, n_common: int, total_runs: dict) -> str:
                      f"Ultra rescued the other {t['fixed'] - t['at_super']}.")
     if "routed" in stats:
         rs = stats["routed"]
-        notes.append(f"Routing: Nano refused {rs['refused']} task(s) as not specific bug reports (every benchmark task is a real bug, so any refusal is a mistake) "
-                     f"and sent {rs['to_ultra']} straight to Ultra; the rest started with Super.")
+        if rs["refused"] == 0 and rs["to_ultra"] == 0:
+            notes.append("Routing: Nano rated every benchmark bug easy or medium and refused none, so the routed strategy took exactly the "
+                         "same path as tiered. The gap between the two rows is run-to-run noise, not a routing benefit. "
+                         "(Refusing invalid tasks is tested separately, see README.)")
+        else:
+            notes.append(f"Routing: Nano refused {rs['refused']} task(s) as not specific bug reports (every benchmark task is a real bug, so any refusal is a mistake) "
+                         f"and sent {rs['to_ultra']} straight to Ultra; the rest started with Super.")
     fp = {NAMES[c]: s["false_pass"] for c, s in stats.items() if s["false_pass"]}
     if fp:
         notes.append("Runs the harness accepted but the hidden test rejected: " + ", ".join(f"{k} {v}" for k, v in fp.items()) + ".")
@@ -78,6 +83,8 @@ def markdown(stats: dict, n_common: int, total_runs: dict) -> str:
     extra = {NAMES[c]: v for c, v in total_runs.items() if v != n_common}
     if extra:
         notes.append("Runs available per strategy before aligning: " + ", ".join(f"{k} {v}" for k, v in total_runs.items()) + ".")
+    notes.append("Average times are only loosely comparable: the strategies ran at the same time with different numbers of parallel jobs, "
+                 "so each was slowed by a different amount of shared load.")
     notes.append("Dollar figures use the estimated prices in `patchwright/prices.json`, not official Nebius billing. "
                  "The agent is not deterministic, so repeat the benchmark before reading small differences as real.")
     return "\n".join(out) + "\n\n" + "\n\n".join(notes) + "\n"

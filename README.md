@@ -92,8 +92,35 @@ This is a synthetic set built for fast, repeatable comparison. It is **not SWE-b
 Real runs on Nebius Token Factory (raw files in `results/`, rebuilt with `python -m bench.summary`).
 
 <!-- RESULTS:START -->
-Not filled in yet.
+Compared on the same **40 runs** for every strategy (20 bugs, up to 2 repeats each). "Truly fixed" means the hidden test the agent never saw also passes.
+
+| Strategy | Truly fixed | Avg time per bug | Tokens | Est. cost | Est. cost per fixed bug |
+|---|---|---|---|---|---|
+| Tiered (Super, then Ultra) | 34/40 (85%) | 124s | 2,371,016 | $1.47 | $0.043 |
+| Routed (Nano triage decides) | 37/40 (92%) | 101s | 2,155,329 | $1.24 | $0.034 |
+| Super only | 20/40 (50%) | 94s | 1,382,028 | $0.62 | $0.031 |
+| Ultra only | 33/40 (82%) | 71s | 1,817,270 | $1.61 | $0.049 |
+
+In the tiered runs, Super alone fixed 23 of the 34 truly fixed bugs; Ultra rescued the other 11.
+
+Routing: Nano rated every benchmark bug easy or medium and refused none, so the routed strategy took exactly the same path as tiered. The gap between the two rows is run-to-run noise, not a routing benefit. (Refusing invalid tasks is tested separately, see README.)
+
+Runs the harness accepted but the hidden test rejected: Tiered (Super, then Ultra) 1, Ultra only 1.
+
+Average times are only loosely comparable: the strategies ran at the same time with different numbers of parallel jobs, so each was slowed by a different amount of shared load.
+
+Dollar figures use the estimated prices in `patchwright/prices.json`, not official Nebius billing. The agent is not deterministic, so repeat the benchmark before reading small differences as real.
 <!-- RESULTS:END -->
+
+### What these numbers do and do not show
+
+- **Super alone is not enough** (about half the bugs); Ultra is far stronger; tiered Super-then-Ultra reaches Ultra's fix rate at a somewhat lower estimated cost. Tiered spends more tokens than Ultra-only, because Super's unsuccessful attempts still cost tokens; the saving comes from Super tokens being cheaper.
+- **Run-to-run noise is about +/-3 of 40.** Tiered and routed took identical paths (see below) yet differed on 7 of the 40 runs. Differences of a few bugs between strategies are not evidence.
+- **The router's difficulty routing did not work on this benchmark.** Nano rated every bug easy or medium, never hard, and its labels did not predict which bugs Super-only failed (it failed half of each group). A replay of the saved runs also shows that a perfect router could save only around 10-15% of the estimated cost, and that cutting Super's step budget would lose most of Super's successes (11 of its 20 successes came at the 14-step limit). We report this as a negative result rather than tune the prompt on the test bugs.
+- **The validity gate did work in a small check** (`python -m bench.validity_check`): Nano refused 10 of 10 hand-written non-bug tasks ("find all the bugs", feature requests, questions) and accepted 4 of 5 real bug reports. The one wrongly refused real bug is why the web app offers "Run anyway" when a task is refused.
+- **A passing self-written test is strong evidence, not a guarantee.** The hidden tests caught 2 fixes that the agent's own checks accepted (1 of 40 tiered runs, 1 of 40 Ultra-only runs).
+- **Earlier runs had two harness bugs** (a model's own new test file wrongly rejected after a failed review, and a working fix not counted when the model never said "finish"). They were found from saved traces, fixed with regression tests, and every strategy was re-run from scratch. The discarded runs are not used anywhere in this table.
+
 
 ## Safety
 
