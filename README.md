@@ -109,7 +109,7 @@ This is a synthetic set built for fast, repeatable comparison. It is **not SWE-b
 Real runs on Nebius Token Factory (raw files in `results/`, rebuilt with `python -m bench.summary`).
 
 <!-- RESULTS:START -->
-Compared on the same **40 runs** for every strategy (20 bugs, up to 2 repeats each). "Truly fixed" means the hidden test the agent never saw also passes.
+Main benchmark (before multi-action turns; see Efficiency below). Compared on the same **40 runs** for every strategy (20 bugs, up to 2 repeats each). "Truly fixed" means the hidden test the agent never saw also passes.
 
 | Strategy | Truly fixed | Avg time per bug | Tokens | Cost | Cost per fixed bug |
 |---|---|---|---|---|---|
@@ -130,6 +130,27 @@ Average times are only loosely comparable: the strategies ran at the same time w
 
 Dollar figures are tokens times the per-token prices in `patchwright/prices.json` (Super and Ultra read from the Nebius usage page; Nano's price is an estimate). The agent is not deterministic, so repeat the benchmark before reading small differences as real.
 <!-- RESULTS:END -->
+
+### Efficiency: fewer model calls per fix
+
+The biggest lever turned out to be the number of model calls: the whole conversation is re-sent on every call, and about 75% of tokens are prompt tokens. Models often send several actions in one reply, and the harness used to run only the first. It now runs up to three, in order, and stops at the first failure.
+
+<!-- EFFICIENCY:START -->
+Same 20 bugs, one repeat each. "Before" is repeat 0 of the main benchmark; "after" adds multi-action turns (up to 3 actions per model reply).
+
+| Strategy | | Truly fixed | Tokens per fixed bug | Model calls per run | Cost per fixed bug | Total cost (20 runs) |
+|---|---|---|---|---|---|---|
+| Tiered (Super, then Ultra) | before | 18/20 | 65,626 | 18.4 | $0.048 | $0.87 |
+| | **after** | 19/20 | **40,207** (-39%) | 13.6 (-26%) | **$0.024** (-51%) | $0.45 (-48%) |
+| Ultra only | before | 16/20 | 59,687 | 11.3 | $0.087 | $1.39 |
+| | **after** | 19/20 | **20,370** (-66%) | 7.5 (-33%) | **$0.029** (-67%) | $0.55 (-60%) |
+
+Why it saves so much: the whole conversation is re-sent on every call, so fewer turns means fewer calls *and* a shorter history on each call.
+
+Caveats: one repeat of 20 bugs, so a difference of one or two fixed bugs is noise. Seconds per run are left out on purpose: the baseline ran under heavier parallel load than the after runs, so they are not comparable; calls and tokens do not depend on load.
+
+With multi-action turns, tiered costs $0.024 per fixed bug and Ultra-only $0.029: tiered is 18% cheaper, but makes 13.6 model calls per run against 7.5, because Super's attempts add turns. Batching helped Ultra-only the most, so the money saved by routing is now small; choose tiered to minimise cost and Ultra-only to minimise latency.
+<!-- EFFICIENCY:END -->
 
 ### What these numbers do and do not show
 

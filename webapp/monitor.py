@@ -18,10 +18,8 @@ RUNS = ROOT / "runs"
 MAP_FILE = RUNS / "monitor_map.json"
 
 TASKS = [
-    {"key": "ultra", "label": "Ultra only", "log": "bench_ultra.log", "glob": "ultra-*.jsonl", "total": 40, "workers": 7},
-    {"key": "tiered", "label": "Tiered (Super, then Ultra)", "log": "bench_tiered.log", "glob": "tiered-*.jsonl", "total": 40, "workers": 6},
-    {"key": "super", "label": "Super only", "log": "bench_super.log", "glob": "super-*.jsonl", "total": 40, "workers": 5},
-    {"key": "routed", "label": "Routed (Nano triage decides)", "log": "bench_routed.log", "glob": "routed-*.jsonl", "total": 40, "workers": 4},
+    {"key": "tiered_ab", "label": "Tiered + multi-action turns (A/B)", "log": "bench_tiered_ab.log", "glob": "tiered-*.jsonl", "total": 20, "workers": 6},
+    {"key": "ultra_ab", "label": "Ultra only + multi-action turns (A/B)", "log": "bench_ultra_ab.log", "glob": "ultra-*.jsonl", "total": 20, "workers": 5},
 ]
 URL_RE = re.compile(r"pwbench-([A-Za-z0-9_]+)[\\/]+r(\d+)[\\/]+([\w\-]+)")
 SUMMARY_RE = re.compile(r"^\w+: \d+/\d+ truly fixed", re.M)

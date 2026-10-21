@@ -1,4 +1,4 @@
-Compared on the same **40 runs** for every strategy (20 bugs, up to 2 repeats each). "Truly fixed" means the hidden test the agent never saw also passes.
+Main benchmark (before multi-action turns; see Efficiency below). Compared on the same **40 runs** for every strategy (20 bugs, up to 2 repeats each). "Truly fixed" means the hidden test the agent never saw also passes.
 
 | Strategy | Truly fixed | Avg time per bug | Tokens | Cost | Cost per fixed bug |
 |---|---|---|---|---|---|

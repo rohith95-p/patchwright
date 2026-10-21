@@ -70,7 +70,7 @@ def breakeven(data: dict[str, list[dict]], common: set) -> str | None:
 
 
 def markdown(stats: dict, n_common: int, total_runs: dict, sens: str | None = None) -> str:
-    out = [f"Compared on the same **{n_common} runs** for every strategy (20 bugs, up to 2 repeats each). "
+    out = [f"Main benchmark (before multi-action turns; see Efficiency below). Compared on the same **{n_common} runs** for every strategy (20 bugs, up to 2 repeats each). "
            "\"Truly fixed\" means the hidden test the agent never saw also passes.", "",
            "| Strategy | Truly fixed | Avg time per bug | Tokens | Cost | Cost per fixed bug |",
            "|---|---|---|---|---|---|"]

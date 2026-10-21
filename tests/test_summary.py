@@ -68,3 +68,13 @@ def test_row_cost_uses_real_per_tier_prices():
     pin, pout = PRICES["ultra"]
     assert row_cost(r) == pytest.approx(0.8 * pin + 0.2 * pout)
     assert row_cost({}) == 0 and row_cost({"by_tier": {"mystery": {"tokens": 5}}, "prompt_tokens": 1}) == 0
+
+
+def test_efficiency_comparison_math_and_wording():
+    from bench import efficiency
+    b = efficiency.stats([row("a", 0, True, tokens=1000), row("b", 0, False, tokens=1000)])
+    a = efficiency.stats([row("a", 0, True, tokens=400), row("b", 0, True, tokens=400)])
+    assert b["fixed"] == 1 and a["fixed"] == 2 and b["tok_fix"] == 2000 and a["tok_fix"] == 400
+    assert efficiency.pct(2000, 400) == "-80%" and efficiency.pct(None, 5) == "n/a" and efficiency.pct(10, None) == "n/a"
+    md = efficiency.table({"tiered": (b, a), "ultra": (b, a)})
+    assert "-80%" in md and "Seconds per run are left out on purpose" in md and "Tiered (Super, then Ultra)" in md
