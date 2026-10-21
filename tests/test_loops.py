@@ -370,3 +370,30 @@ def test_tavily_sources_are_kept_on_unsolved_runs_too(repo, monkeypatch):
     llm = FakeLLM([act(action="search", query="python average of a list")] + [act(action="run", cmd=f"echo {i}") for i in range(30)])
     res, evs = events_of(llm, url, task["issue"], ["super"])
     assert not res.solved and any(s["url"] == "https://pyyaml.org/" for s in res.evidence)
+
+
+def test_agent_fixes_a_bug_with_the_edit_action(repo):
+    url, task = repo
+    reply = ('{"action":"write","path":"test_new.py"}\n<<<FILE\nfrom stats import average\n\ndef test_a():\n    assert average([2, 4, 6]) == 4\nFILE>>>\n'
+             '{"action":"edit","path":"stats.py"}\n<<<OLD\n(len(nums) - 1)\nOLD>>>\n<<<NEW\nlen(nums)\nNEW>>>\n'
+             '{"action":"finish","repro_test_cmd":"python -m pytest -q test_new.py","suite_cmd":"python -m pytest -q","summary":"off by one"}')
+    llm = FakeLLM([reply])
+    res, evs = events_of(llm, url, task["issue"], ["super"])
+    assert res.solved and llm.calls == 1
+    assert "-    return sum(nums) / (len(nums) - 1)" in res.diff and "+    return sum(nums) / len(nums)" in res.diff
+
+
+def test_a_failed_edit_is_reported_and_the_rest_of_the_reply_is_skipped(repo):
+    url, task = repo
+    seen = []
+    reply = ('{"action":"edit","path":"stats.py"}\n<<<OLD\nTHIS TEXT IS NOT THERE\nOLD>>>\n<<<NEW\nx\nNEW>>>\n{"action":"run","cmd":"echo SHOULD_NOT_RUN"}')
+    llm = FakeLLM([reply, json.dumps(dict(action="run", cmd="ls"))])
+    orig = llm.chat
+
+    def spy(tier, messages, **kw):
+        seen.append(messages[-1]["content"])
+        return orig(tier, messages, **kw)
+    llm.chat = spy
+    events_of(llm, url, task["issue"], ["super"])
+    assert any("edit failed" in m and "not found" in m and "skipped" in m for m in seen)
+    assert not any("SHOULD_NOT_RUN" in m and "exit=0" in m for m in seen)

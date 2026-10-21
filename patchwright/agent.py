@@ -12,7 +12,7 @@ import time
 from dataclasses import dataclass, field
 
 from .config import get_model
-from .context import relevant_excerpts
+from .context import own_modules, relevant_excerpts
 from .llm import LLM
 from .sandbox import Sandbox
 from .tools import format_results, research_query, search
@@ -58,6 +58,16 @@ Reply with exactly ONE JSON object per turn and nothing else. Actions:
 FILE>>>
 (For "write", the JSON line contains only the action and path. The file content goes between <<<FILE and FILE>>> exactly as it should appear on disk.)
 
+To change an EXISTING file use edit, which replaces only the lines that must change:
+{"action":"edit","path":"<existing file>"}
+<<<OLD
+<the exact current text to replace, copied from the file, including indentation>
+OLD>>>
+<<<NEW
+<the replacement text>
+NEW>>>
+OLD must match the file exactly and be unique in it (add a surrounding line if it is not). NEVER rewrite an existing source file with write: you usually have seen only part of a large file, and a rewrite destroys the rest. Use write only for NEW files.
+
 To save steps you may put up to 3 actions in one reply, one after another; they run in order and you get every result back together. Batch what does not depend on a result you need to read first, for example: write your new test and run it; or write the fix and run the new test and the suite. If an action fails, the rest of the reply is skipped. Do not batch past something whose output you must see before deciding.
 {"action":"search","query":"<web search; only for unfamiliar library or error behaviour>"}
 {"action":"finish","repro_test_cmd":"<command that runs ONLY your new test, e.g. python -m pytest -q test_bug.py>","suite_cmd":"<command that runs the full suite, e.g. python -m pytest -q>","summary":"<root cause and fix in 2-4 sentences>"}
@@ -82,6 +92,8 @@ class Result:
 
 FILE_BLOCK = re.compile(
     r"<<<FILE[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*FILE\s*>{1,3}\s*\}?|(?=\r?\n\s*\{\s*\"action\")|\Z)", re.S)
+OLD_BLOCK = re.compile(r"<<<OLD[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*OLD\s*>{1,3}\s*\}?|(?=\r?\n\s*<<<NEW)|\Z)", re.S)
+NEW_BLOCK = re.compile(r"<<<NEW[ \t]*\r?\n(.*?)(?:\r?\n?[ \t]*NEW\s*>{1,3}\s*\}?|(?=\r?\n\s*\{\s*\"action\")|\Z)", re.S)
 NEXT_ACTION = re.compile(r'\{\s*"action"')
 
 
@@ -111,6 +123,14 @@ def _parse_actions(text: str) -> list[dict]:
             if block and (not nxt or block.start() < nxt.start()):
                 obj["content"] = block.group(1).rstrip("\n") + "\n"
                 pos = block.end()
+        if obj["action"] == "edit" and "old" not in obj:
+            old_b = OLD_BLOCK.search(text, pos)
+            nxt = NEXT_ACTION.search(text, pos)
+            if old_b and (not nxt or old_b.start() < nxt.start()):
+                new_b = NEW_BLOCK.search(text, old_b.end())
+                obj["old"] = old_b.group(1)
+                obj["new"] = new_b.group(1) if new_b else ""
+                pos = new_b.end() if new_b else old_b.end()
         if obj["action"] in ("read", "cat", "open", "view") and obj.get("path"):
             obj = {"action": "run", "cmd": "cat -- " + shlex.quote(str(obj["path"]))}
         acts.append(obj)
@@ -243,6 +263,8 @@ def _detail(act: dict) -> str:
         return act.get("cmd", "")
     if a == "write":
         return f"{act.get('path', '')}\n{str(act.get('content', ''))[:700]}"
+    if a == "edit":
+        return f"{act.get('path', '')}\n- {str(act.get('old', ''))[:350]}\n+ {str(act.get('new', ''))[:350]}"
     if a == "search":
         return act.get("query", "")
     return ""
@@ -297,6 +319,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
             ctx = research(f"{slug} {issue[:220]}", "related discussion")
             if ctx:
                 hint += "\n\nPossibly related web results (Tavily; may be about a different problem):\n" + ctx[:1500]
+        own = own_modules(sb.host_dir / "repo")
         found = relevant_excerpts(sb.host_dir / "repo", issue)
         excerpts = ("Code most relevant to the issue (found by searching the repository for the names it mentions; "
                     "read these before exploring):\n" + found + "\n\n") if found else ""
@@ -377,7 +400,7 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                         code, out = sb.exec(str(act.get("cmd") or "true"))
                         obs = f"exit={code}\n{out}"
                         stop = code != 0
-                        found = research(research_query(out) or "", "error")
+                        found = research(research_query(out, own) or "", "error")
                         if found:
                             obs += "\n\n[Web research via Tavily for this error]\n" + found[:1500]
                     elif a == "write":
@@ -388,6 +411,12 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                             obs = f"wrote {act['path']}"
                         except Exception as e:  # noqa: BLE001
                             obs = f"write failed: {e}"
+                            stop = True
+                    elif a == "edit":
+                        try:
+                            obs = sb.edit(str(act.get("path") or ""), str(act.get("old") or ""), str(act.get("new") or ""))
+                        except Exception as e:  # noqa: BLE001
+                            obs = f"edit failed: {e}"
                             stop = True
                     elif a == "search":
                         obs = research(str(act.get("query") or ""), "asked by the model") or "[no web results: repeated query, limit reached or search unavailable]"

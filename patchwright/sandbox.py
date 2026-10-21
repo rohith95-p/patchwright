@@ -143,13 +143,44 @@ class Sandbox:
     def read(self, path: str) -> str:
         return self.exec(f"cat -- {path!r}")[1]
 
-    def write(self, path: str, content: str) -> None:
-        path = path.replace("\\", "/")
+    def _resolve(self, path: str) -> Path:
+        path = (path or "").replace("\\", "/")
         if path.startswith("/work/"):
             path = path[len("/work/"):]
         p = (self.host_dir / "repo" / path.lstrip("/")).resolve()
         if (self.host_dir / "repo").resolve() not in p.parents:
             raise ValueError("path escapes repo")
+        return p
+
+    def edit(self, path: str, old: str, new: str) -> str:
+        """Replace one exact piece of an existing file. The only safe way to change a large file."""
+        if not old:
+            raise ValueError("edit needs the exact OLD text to replace")
+        p = self._resolve(path)
+        if not p.is_file():
+            raise ValueError(f"{path} does not exist; use write to create a new file")
+        raw = p.read_bytes().decode("utf-8")
+        crlf = "\r\n" in raw
+        text = raw.replace("\r\n", "\n")
+        old, new = old.replace("\r\n", "\n"), new.replace("\r\n", "\n")
+        n = text.count(old)
+        if n == 0:
+            first = next((ln.strip() for ln in old.splitlines() if ln.strip()), "")
+            hint = f" The first line of OLD is {first!r}; copy the text from the file exactly, including indentation." if first else ""
+            raise ValueError("the OLD text was not found in the file." + hint)
+        if n > 1:
+            raise ValueError(f"the OLD text matches {n} places; include more surrounding lines so it is unique")
+        out = text.replace(old, new, 1)
+        p.write_bytes((out.replace("\n", "\r\n") if crlf else out).encode("utf-8"))
+        return f"edited {path}: replaced {old.count(chr(10)) + 1} line(s) with {new.count(chr(10)) + 1} line(s)"
+
+    def write(self, path: str, content: str) -> None:
+        p = self._resolve(path)
+        if p.is_file() and "test" not in p.name.lower():
+            before = p.read_bytes().decode("utf-8", errors="replace").count("\n")
+            if before > 60 and content.count("\n") < 0.7 * before:
+                raise ValueError(f"refusing to overwrite the existing {before}-line file {path} with a much shorter one; "
+                                 "use the edit action to replace only the lines that must change")
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(content, encoding="utf-8", newline="\n")
 

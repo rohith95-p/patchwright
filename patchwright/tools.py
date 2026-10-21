@@ -54,19 +54,24 @@ def web_search(query: str, max_results: int = 4) -> str:
 
 # Errors that usually mean "a library or its version", where the web helps. Errors in the agent's own code or
 # assertions (AssertionError, KeyError, ZeroDivisionError ...) are deliberately not researched.
+# (pattern, query template, index of the group that names the module, or None)
 _RESEARCH = [
-    (re.compile(r"ModuleNotFoundError: No module named '([\w.]+)'"), "python ModuleNotFoundError No module named '{0}' which pip package"),
-    (re.compile(r"ImportError: cannot import name '(\w+)' from '([\w.]+)'"), "python ImportError cannot import name '{0}' from '{1}'"),
-    (re.compile(r"AttributeError: module '([\w.]+)' has no attribute '(\w+)'"), "python AttributeError module '{0}' has no attribute '{1}' removed or renamed"),
-    (re.compile(r"TypeError: .{0,80}got an unexpected keyword argument '(\w+)'"), "python TypeError got an unexpected keyword argument '{0}'"),
-    (re.compile(r"(DeprecationWarning|FutureWarning): (.{10,160})"), "python {0} {1}"),
+    (re.compile(r"ModuleNotFoundError: No module named '([\w.]+)'"), "python ModuleNotFoundError No module named '{0}' which pip package", 0),
+    (re.compile(r"ImportError: cannot import name '(\w+)' from '([\w.]+)'"), "python ImportError cannot import name '{0}' from '{1}'", 1),
+    (re.compile(r"AttributeError: module '([\w.]+)' has no attribute '(\w+)'"), "python AttributeError module '{0}' has no attribute '{1}' removed or renamed", 0),
+    (re.compile(r"TypeError: .{0,80}got an unexpected keyword argument '(\w+)'"), "python TypeError got an unexpected keyword argument '{0}'", None),
+    (re.compile(r"(DeprecationWarning|FutureWarning): (.{10,160})"), "python {0} {1}", None),
 ]
 
 
-def research_query(output: str) -> str | None:
-    """A Tavily query for a library or version style error in command output, or None if the error is the agent's own."""
-    for pattern, template in _RESEARCH:
+def research_query(output: str, own: frozenset | set = frozenset()) -> str | None:
+    """A Tavily query for a library or version style error in command output, or None if the error is the agent's own.
+    `own` holds the project's own module names: a failing import of those is the agent's doing, not a library mystery."""
+    for pattern, template, module_group in _RESEARCH:
         m = pattern.search(output)
-        if m:
-            return template.format(*m.groups()).strip()[:300]
+        if not m:
+            continue
+        if module_group is not None and m.group(module_group + 1).split(".")[0] in own:
+            continue
+        return template.format(*m.groups()).strip()[:300]
     return None

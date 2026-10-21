@@ -279,3 +279,80 @@ def test_invented_read_action_becomes_a_safe_cat():
     from patchwright.agent import _parse_actions
     assert _parse_actions('{"action":"read","path":"src/a b.py"}') == [{"action": "run", "cmd": "cat -- 'src/a b.py'"}]
     assert _parse_actions('{"action":"read","path":"x; rm -rf /"}')[0]["cmd"] == "cat -- 'x; rm -rf /'", "the path must be quoted"
+
+
+# ---- the edit action: change a few lines of a big existing file, never rewrite it ----
+def test_edit_blocks_are_parsed_with_exact_text():
+    from patchwright.agent import _parse_actions
+    reply = ('{"action":"edit","path":"src/a.py"}\n<<<OLD\n        except IndexError:\n            raise KeyError("e")\nOLD>>>\n'
+             '<<<NEW\n        if not keys:\n            raise KeyError("e")\nNEW>>>\n{"action":"run","cmd":"pytest -q"}')
+    acts = _parse_actions(reply)
+    assert [a["action"] for a in acts] == ["edit", "run"]
+    assert acts[0]["old"] == '        except IndexError:\n            raise KeyError("e")'
+    assert acts[0]["new"] == '        if not keys:\n            raise KeyError("e")'
+
+
+def test_own_modules_and_research_skip_the_projects_own_names(tmp_path):
+    from patchwright.context import own_modules
+    from patchwright.tools import research_query
+    (tmp_path / "src" / "mylib").mkdir(parents=True)
+    (tmp_path / "src" / "mylib" / "__init__.py").write_text("")
+    (tmp_path / "helper.py").write_text("")
+    own = own_modules(tmp_path)
+    assert {"mylib", "helper"} <= own
+    assert research_query("ImportError: cannot import name 'X' from 'mylib'", own) is None
+    assert research_query("ModuleNotFoundError: No module named 'mylib.sub'", own) is None
+    assert research_query("ModuleNotFoundError: No module named 'yaml'", own)
+
+
+@pytest.fixture
+def big_repo(tmp_path):
+    d = tmp_path / "big"
+    d.mkdir()
+    (d / "mod.py").write_text("".join(f"def f{i}():\n    return {i}\n\n" for i in range(40)))     # about 120 lines
+    (d / "small.py").write_text("x = 1\ny = 2\n")
+    for c in (["git", "init", "-q"], ["git", "add", "."], ["git", "-c", "user.email=a@b", "-c", "user.name=t", "commit", "-qm", "i"]):
+        subprocess.run(c, cwd=d, check=True, capture_output=True)
+    return str(d)
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_edit_replaces_only_the_named_text_and_reports_clear_errors(big_repo):
+    from patchwright.sandbox import Sandbox
+    with Sandbox(big_repo) as sb:
+        msg = sb.edit("mod.py", "def f7():\n    return 7", "def f7():\n    return 700")
+        assert "replaced 2 line" in msg
+        text = sb.exec("cat mod.py")[1]
+        assert "return 700" in text and "def f8()" in text and text.count("def ") == 40, "everything else must be untouched"
+        with pytest.raises(ValueError, match="not found"):
+            sb.edit("mod.py", "def nothing():", "x")
+        with pytest.raises(ValueError, match="matches"):
+            sb.edit("small.py", "= ", "= 5")            # 'x = 1' and 'y = 2' both contain '= '
+        with pytest.raises(ValueError, match="does not exist"):
+            sb.edit("missing.py", "a", "b")
+        with pytest.raises(ValueError, match="escapes"):
+            sb.edit("../../etc/passwd", "a", "b")
+        with pytest.raises(ValueError, match="OLD"):
+            sb.edit("mod.py", "", "b")
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_edit_works_on_crlf_files_and_keeps_their_line_endings(big_repo):
+    from patchwright.sandbox import Sandbox
+    with Sandbox(big_repo) as sb:
+        p = sb.host_dir / "repo" / "small.py"
+        p.write_bytes(b"x = 1\r\ny = 2\r\n")
+        sb.edit("small.py", "x = 1\ny = 2", "x = 10\ny = 20")
+        assert p.read_bytes() == b"x = 10\r\ny = 20\r\n"
+
+
+@pytest.mark.skipif(not HAS_DOCKER, reason="Docker not available")
+def test_a_large_existing_source_file_cannot_be_overwritten_by_a_short_rewrite(big_repo):
+    from patchwright.sandbox import Sandbox
+    with Sandbox(big_repo) as sb:
+        before = sb.exec("cat mod.py")[1]
+        with pytest.raises(ValueError, match="refusing to overwrite"):
+            sb.write("mod.py", "def f0():\n    return 0\n")
+        assert sb.exec("cat mod.py")[1] == before, "the file must be untouched after a refused rewrite"
+        sb.write("small.py", "z = 3\n")                      # small files may be rewritten
+        sb.write("brand_new.py", "ok = True\n")              # new files are always fine

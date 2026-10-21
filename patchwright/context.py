@@ -31,6 +31,20 @@ def identifiers(issue: str) -> dict[str, int]:
     return weights
 
 
+def own_modules(root: Path) -> set[str]:
+    """Top-level module and package names that belong to the project itself."""
+    names: set[str] = set()
+    for base in (root, root / "src"):
+        if not base.is_dir():
+            continue
+        for p in base.iterdir():
+            if p.is_dir() and (p / "__init__.py").exists():
+                names.add(p.name)
+            elif p.suffix == ".py":
+                names.add(p.stem)
+    return names
+
+
 def _enclosing_class(lines: list[str], i: int) -> str | None:
     indent = len(lines[i]) - len(lines[i].lstrip())
     for j in range(i - 1, -1, -1):
