@@ -82,3 +82,41 @@ def test_limits_do_not_apply_outside_demo_mode(monkeypatch):
     monkeypatch.setattr(webapp, "RUNS", {})
     monkeypatch.setattr(webapp, "DEMO_MAX_PER_IP_HOUR", 1)
     assert [client.post("/api/runs", json={"example_id": "avg-offbyone"}).status_code for _ in range(3)] == [200, 200, 200]
+
+
+def test_showcase_is_computed_from_the_committed_results():
+    d = client.get("/api/showcase").json()
+    assert set(d["bench"]) == {"tiered", "routed", "super", "ultra"} and all(v["runs"] == 40 for v in d["bench"].values())
+    assert d["bench"]["super"]["rate"] < d["bench"]["tiered"]["rate"], "Super alone must be weaker than tiered in the committed results"
+    for c in ("tiered", "ultra"):
+        assert d["efficiency"][c]["after"]["cost_fix"] < d["efficiency"][c]["before"]["cost_fix"]
+    rw = d["realworld"]
+    assert len(rw["attempts"]) == 6 and rw["solved_runs"] == 2, "the failures must stay visible"
+    assert [a["run"] for a in rw["attempts"]] == [1, 2, 3, 4, 5, 6] and all(a["lesson"] for a in rw["attempts"])
+    assert rw["pr_url"].endswith("/pull/1") and rw["final"]["upstream_test_passes"] is True and rw["final"]["sources"]
+    assert set(d["prices"]) == {"nano", "super", "ultra"}
+
+
+def test_logo_is_served_and_is_a_valid_svg():
+    r = client.get("/static/logo.svg")
+    assert r.status_code == 200 and "<svg" in r.text and "Patchwright" in r.text
+
+
+def test_pages_and_scripts_are_revalidated_so_updates_are_never_hidden_by_a_stale_cache():
+    for path in ("/", "/static/app.js", "/static/pages.js", "/static/styles.css", "/static/logo.svg"):
+        assert client.get(path).headers.get("cache-control") == "no-cache", path
+    assert "cache-control" not in client.get("/api/config").headers or client.get("/api/config").headers["cache-control"] != "no-cache"
+
+
+def test_every_nav_link_has_a_route_and_the_page_loads_both_scripts():
+    import re
+    from pathlib import Path
+    static = Path(webapp.STATIC)
+    html = (static / "index.html").read_text(encoding="utf-8")
+    app_js, pages_js = (static / "app.js").read_text(encoding="utf-8"), (static / "pages.js").read_text(encoding="utf-8")
+    assert '/static/app.js' in html and '/static/pages.js' in html and '/static/logo.svg' in html
+    routes = {"home": "pageHome", "fix": "pageRun", "results": "pageResults", "how": "pageHow", "monitor": "pageMonitor", "history": "pageHistory"}
+    assert set(re.findall(r'data-nav="(\w+)"', html)) == set(routes), "the navigation and the router must list the same pages"
+    for fn in routes.values():
+        assert f"function {fn}(" in app_js + pages_js, f"{fn} is missing"
+    assert "pageHow" not in app_js.split("function pageHow")[0] or "function pageHow(" not in app_js, "pageHow must live in exactly one file"

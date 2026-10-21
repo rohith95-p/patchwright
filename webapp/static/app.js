@@ -29,12 +29,14 @@ async function route() {
   if (stream) { stream.close(); stream = null; }
   clearInterval(timer);
   const [_, page, arg] = location.hash.split("/");
-  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", a.dataset.nav === (page || "run") || (page === "r" && a.dataset.nav === "run")));
+  const active = !page ? "home" : page === "r" ? "fix" : page === "bench" ? "results" : page;
+  document.querySelectorAll("nav a").forEach(a => a.classList.toggle("on", a.dataset.nav === active));
   const app = $("#app");
   try {
-    if (!page || page === "") await pageRun(app);
+    if (!page || page === "") await pageHome(app);
+    else if (page === "fix") await pageRun(app);
     else if (page === "r") await pageRun(app, arg);
-    else if (page === "bench") await pageBench(app);
+    else if (page === "results" || page === "bench") await pageResults(app);
     else if (page === "how") pageHow(app);
     else if (page === "monitor") await pageMonitor(app);
     else if (page === "history") await pageHistory(app);
@@ -49,6 +51,7 @@ async function boot() {
   const m = CONFIG.models;
   $("#env").innerHTML = `<span class="pill ${CONFIG.provider === "nebius" ? "ok" : "warn"}" title="Model provider">${CONFIG.provider === "nebius" ? "Nebius Token Factory" : "NVIDIA dev endpoint"}</span>` +
     `<span class="pill" title="${esc(JSON.stringify(m))}">Nemotron ×3 tiers</span>`;
+  if (CONFIG.demo_mode) document.querySelectorAll('nav a[data-nav="monitor"]').forEach(a => a.remove());  // the monitor only makes sense on the machine running benchmarks
   route();
 }
 
@@ -58,8 +61,8 @@ let form = { tab: "example", example: null, mode: "tiered" };
 async function pageRun(app, runId) {
   const dots = n => `<span class="diff-dots">${[1, 2, 3].map(i => `<i class="${i <= n ? "f" : ""}"></i>`).join("")}</span>`;
   app.innerHTML = `
-    <h1>Fixes you can trust, because they come with proof.</h1>
-    <p class="lede">Paste a bug or pick one below. Patchwright reproduces it in a sandbox, writes a failing test, fixes the code, and only calls it done when the test turns green. Nemotron Nano triages, Super writes the patch, and Ultra steps in only when Super is stuck.</p>
+    <h1>Fix a bug</h1>
+    <p class="lede">Pick a bundled bug or describe one in a repository. Watch Nano triage, Super patch and Ultra step in only if Super is stuck, then see the proof.</p>
     <div class="cols">
       <section class="card" id="formcard">
         <div class="tabs" role="tablist"><button data-tab="example" class="${form.tab === "example" ? "on" : ""}">Example bugs</button>${CONFIG.demo_mode ? "" : `<button data-tab="repo" class="${form.tab === "repo" ? "on" : ""}">Your repo</button>`}</div>
@@ -234,7 +237,7 @@ async function pageBench(app) {
   const note = data.prices_note ? `<div class="banner">Fix rates, tokens and steps are measured. Dollar figures are tokens × per-token prices: ${esc(data.prices_note)}</div>` : "";
   const rnote = R.routed ? `<div class="banner">Read the Routed row with care: Nano rated every benchmark bug easy or medium, so routed took the same path as Tiered. The gap between those two rows is run-to-run noise (about ±3 of 40), not a routing benefit.</div>` : "";
   app.innerHTML = `
-    <h1>Does routing between models actually pay off?</h1>
+    <h2>The main benchmark: does routing between models pay off?</h2>
     <p class="lede">Every strategy runs the same bugs. A fix counts only if a hidden test the agent never saw passes. The question: can a cheap-first, escalate-when-stuck route match the strongest model for less money?</p>
     ${note}${rnote}
     <div id="benchbody"></div>
@@ -302,23 +305,6 @@ async function pageHistory(app) {
   const runs = await api("/api/runs");
   app.innerHTML = `<h1>Past runs</h1><p class="lede">Every run is saved with its full activity log.</p>
     ${runs.length ? `<div class="tbl"><table><tr><th>When</th><th>Bug</th><th>Strategy</th><th>Result</th><th></th></tr>${runs.map(r => `<tr><td>${new Date(r.created * 1000).toLocaleString()}</td><td>${esc(r.label)}</td><td>${esc(r.mode)}</td><td><span class="pill ${r.status === "solved" ? "ok" : r.status === "running" || r.status === "queued" ? "live" : "bad"}">${esc(r.status)}</span> ${r.result ? `<span class="hint">${r.result.steps} steps · ${fmt.usd(r.result.cost_usd)}</span>` : ""}</td><td><a href="#/r/${r.id}">Open</a></td></tr>`).join("")}</table></div>` : `<div class="card"><div class="empty">No runs yet. Go fix a bug.</div></div>`}`;
-}
-
-/* ---------- how it works ---------- */
-function pageHow(app) {
-  app.innerHTML = `
-    <h1>How Patchwright earns trust</h1>
-    <p class="lede">Most coding assistants write a plausible fix and ask you to believe it. Patchwright never asks you to. The model proposes; a separate harness verifies.</p>
-    <div class="how-grid">
-      <div class="card"><div class="step-n">1</div><h3>Sandbox</h3><p>The repo is cloned into a throwaway Docker container with memory and CPU limits. Nothing touches your machine.</p></div>
-      <div class="card"><div class="step-n">2</div><h3>Triage with Nano</h3><p>A small, fast Nemotron model reads the issue and the repo and points at the likely files. Cheap work goes to the cheap model.</p></div>
-      <div class="card"><div class="step-n">3</div><h3>Reproduce and patch with Super</h3><p>Super writes a new test that fails because of the bug, then fixes the source. It may search the web with Tavily for unfamiliar errors.</p></div>
-      <div class="card"><div class="step-n">4</div><h3>Rescue with Ultra</h3><p>If Super runs out of steps, the repo is reset and the strongest model takes a fresh look, with notes on what failed.</p></div>
-      <div class="card"><div class="step-n">5</div><h3>Independent proof</h3><p>The harness, not the model, reverts the fix and confirms the new test fails, restores it and confirms it passes, runs the whole suite, and rejects any edit to existing tests.</p></div>
-      <div class="card"><div class="step-n">6</div><h3>Deliver evidence</h3><p>You get the patch and a PR description with the proof, tokens and cost. If the agent could not fix it, it says so instead of guessing.</p></div>
-    </div>
-    <div class="card sec"><h2>Why tiers?</h2><p>The strongest model is expensive and slow, and most bugs do not need it. Routing sends each bug to the cheapest model that can fix it. The Benchmark page measures whether that holds: fix rate, time and cost per fixed bug for tiered, Super-only and Ultra-only runs on the same bugs, scored by hidden tests.</p></div>
-    <div class="card sec"><h2>What it does not do</h2><p>It will not fix every bug, and it says so when it cannot. It is built for Python projects with a test suite. It never merges anything: a human reviews the evidence.</p></div>`;
 }
 
 boot().catch(e => { $("#app").innerHTML = `<div class="card"><h2>Cannot reach the server</h2><p>${esc(e.message)}</p></div>`; });

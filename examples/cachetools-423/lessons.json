@@ -1,0 +1,8 @@
+{
+  "cachetools-423-attempt1-failed.json": {"run": 1, "lesson": "A mistyped file-block closing marker lost the file three times. The parser now accepts a wrong or missing marker."},
+  "cachetools-423-attempt2-failed.json": {"run": 2, "lesson": "The model rewrote a 500-line file from a 40-line excerpt and destroyed the module. Edits are now targeted, and big-file overwrites are refused."},
+  "cachetools-423-attempt3-failed.json": {"run": 3, "lesson": "A garbled edit was read as an empty replacement and deleted a method. Edits use SEARCH/REPLACE and are refused if unreadable."},
+  "cachetools-423-attempt4-solved-but-messy.json": {"run": 4, "lesson": "Solved, but five scratch files shipped in the patch and Tavily returned a pest-control page. Scratch files are excluded; Tavily searches developer sources."},
+  "cachetools-423-attempt5-failed.json": {"run": 5, "lesson": "The model put edit markers inside JSON, then read whole files (328k tokens). JSON-field edits are understood; reads are capped."},
+  "cachetools-423.json": {"run": 6, "lesson": "Clean two-file pull request: a 2-line fix and a test. The upstream test passes."}
+}

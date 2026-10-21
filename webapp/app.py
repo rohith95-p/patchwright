@@ -38,6 +38,7 @@ from patchwright.config import PRICE_NOTE, PRICES, PRICES_ARE_ESTIMATES, get_mod
 from patchwright.llm import LLM
 from patchwright.pr import proof_card
 from webapp.monitor import monitor
+from webapp.showcase import showcase
 
 ROOT = Path(__file__).resolve().parent.parent
 WEB_RUNS = ROOT / "runs" / "web"
@@ -120,6 +121,15 @@ def _worker(run: dict, repo: str, issue: str, tiers: list[str], example: dict | 
         run["finished"] = time.time()
         run["events"].append({"type": "end", "status": run["status"]})
         _save(run)
+
+
+@app.middleware("http")
+async def revalidate_static(request: Request, call_next):
+    """Browsers must re-check the page and its scripts on every load, so an update is never hidden by a stale cache."""
+    resp = await call_next(request)
+    if request.url.path == "/" or request.url.path.startswith("/static"):
+        resp.headers["Cache-Control"] = "no-cache"
+    return resp
 
 
 @app.get("/api/config")
@@ -242,6 +252,11 @@ def bench_start(req: BenchRequest) -> dict:
 
     threading.Thread(target=pump, daemon=True).start()
     return {"started": True}
+
+
+@app.get("/api/showcase")
+def showcase_api() -> dict:
+    return showcase()
 
 
 @app.get("/api/monitor")

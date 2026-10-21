@@ -1,4 +1,6 @@
-# Patchwright
+<p align="center"><img src="webapp/static/logo.svg" alt="Patchwright logo: a stitched patch holding a check mark that shades from amber to teal to violet" width="112"></p>
+
+<h1 align="center">Patchwright</h1>
 
 **A bug-fixing agent that only ships fixes it can prove.**
 
@@ -76,10 +78,13 @@ python -m pytest tests -q
 
 ## The web app
 
+- **Overview:** the pitch and the headline numbers, all computed from the result files; the three models and their real prices; the real pull request; and what we do *not* claim.
 - **Fix a bug:** pick one of 20 bundled bugs or point at a public repo and describe one specific bug. Watch Nano, Super and Ultra work live, see each command, and watch the proof checks turn green. Copy a ready-made pull request description.
-- **Benchmark:** fix rate, cost per fixed bug and time per strategy, plus a task-by-task matrix with the patches.
-- **History:** every run is saved with its full activity log.
+- **Results:** the real-world story run by run (including the four that failed and what each taught us), the before/after efficiency numbers, and the main benchmark with its per-bug matrix and patches.
+- **How it works:** the pipeline as a diagram, with the proof gates and where Tavily fits.
+- **Monitor** (local only): live view of benchmark runs in progress. **History:** every run with its full log.
 - Vague requests such as "find all the bugs" are refused before any tokens are spent: Patchwright fixes a bug you describe, it does not hunt for unknown ones.
+- The logo is a stitched patch holding a check mark whose stroke runs amber to teal to violet, the colours of Nano, Super and Ultra: three models, one proof.
 
 ## Real-world demo: a real bug in a real library, a real pull request
 

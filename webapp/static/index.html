@@ -3,16 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Patchwright</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2376b900'/%3E%3Cpath d='M9 17l5 5 9-12' stroke='%23071' stroke-width='3.5' fill='none' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+<title>Patchwright: fixes that come with proof</title>
+<meta name="description" content="An AI bug-fixing agent on NVIDIA Nemotron and Nebius Token Factory that never calls a fix done until plain code has proved it. Measured, with the failures published.">
+<meta name="theme-color" content="#0c0e0b">
+<meta property="og:title" content="Patchwright: fixes that come with proof">
+<meta property="og:description" content="Three Nemotron models, one proof. Real pull request, real benchmark, honest limits.">
+<meta property="og:type" content="website">
+<link rel="icon" type="image/svg+xml" href="/static/logo.svg">
 <link rel="stylesheet" href="/static/styles.css">
 </head>
 <body>
+<a class="skip" href="#app">Skip to content</a>
 <header class="top">
-  <a class="brand" href="#/"><span class="logo"><svg viewBox="0 0 24 24" width="18" height="18"><path d="M5 12.5l4.5 4.5L19 7" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Patchwright</a>
-  <nav>
-    <a href="#/" data-nav="run">Fix a bug</a>
-    <a href="#/bench" data-nav="bench">Benchmark</a>
+  <a class="brand" href="#/" aria-label="Patchwright, home"><img class="logo-img" src="/static/logo.svg" alt="" width="34" height="34"><span class="wordmark">Patchwright<small>proof-carrying fixes</small></span></a>
+  <nav aria-label="Main">
+    <a href="#/" data-nav="home">Overview</a>
+    <a href="#/fix" data-nav="fix">Fix a bug</a>
+    <a href="#/results" data-nav="results">Results</a>
     <a href="#/how" data-nav="how">How it works</a>
     <a href="#/monitor" data-nav="monitor">Monitor</a>
     <a href="#/history" data-nav="history">History</a>
@@ -21,7 +28,12 @@
   <button class="icon-btn" id="theme" title="Toggle theme" aria-label="Toggle theme">◐</button>
 </header>
 <main id="app" class="wrap" aria-live="polite"></main>
-<footer class="foot">Built for the Nebius x NVIDIA Global AI Hackathon · NVIDIA Nemotron on Nebius Token Factory · search by Tavily · MIT licensed</footer>
+<footer class="foot">
+  <img src="/static/logo.svg" alt="" width="22" height="22">
+  <span>Built for the Nebius × NVIDIA Global AI Hackathon · NVIDIA Nemotron on Nebius Token Factory · search by Tavily · MIT licensed</span>
+  <span class="links"><a href="https://github.com/rohith95-p/patchwright" target="_blank" rel="noopener noreferrer">GitHub</a> · <a href="https://github.com/rohith95-p/cachetools-bugfix-demo/pull/1" target="_blank" rel="noopener noreferrer">The real pull request</a></span>
+</footer>
 <script src="/static/app.js"></script>
+<script src="/static/pages.js"></script>
 </body>
 </html>

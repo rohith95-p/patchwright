@@ -14,6 +14,8 @@ jobs:
           python-version: "3.11"
       - name: Install
         run: pip install -e . pytest pyflakes
+      - name: Front-end scripts parse
+        run: node --check webapp/static/app.js && node --check webapp/static/pages.js
       - name: Static check
         run: python -m pyflakes patchwright bench webapp dashboard tests
       - name: Benchmark tasks are fair (visible pass, hidden fail on bug, reference fix passes)

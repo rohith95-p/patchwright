@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="t d">
+  <title id="t">Patchwright</title>
+  <desc id="d">A stitched patch containing a check mark that shades from amber to teal to violet: three models, one proof.</desc>
+  <defs>
+    <linearGradient id="pw-bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b2a0b"/>
+      <stop offset="1" stop-color="#0a1004"/>
+    </linearGradient>
+    <linearGradient id="pw-chk" gradientUnits="userSpaceOnUse" x1="17" y1="36" x2="47" y2="22">
+      <stop offset="0" stop-color="#f5b83d"/>
+      <stop offset="0.5" stop-color="#2dd4bf"/>
+      <stop offset="1" stop-color="#9d86ff"/>
+    </linearGradient>
+  </defs>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="16" fill="url(#pw-bg)"/>
+  <rect x="8" y="8" width="48" height="48" rx="11.5" fill="none" stroke="#76b900" stroke-width="2.4" stroke-dasharray="4.6 3.4" stroke-linecap="round"/>
+  <path d="M17.5 33.5 L27 43 L46.5 21.5" fill="none" stroke="url(#pw-chk)" stroke-width="6.6" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M55.2 47.5 C60.5 50.5 60.8 57 55.6 59.2" fill="none" stroke="#76b900" stroke-width="1.8" stroke-linecap="round"/>
+  <circle cx="55.6" cy="59.2" r="1.7" fill="#76b900"/>
+</svg>

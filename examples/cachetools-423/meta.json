@@ -1,0 +1,6 @@
+{
+  "issue_url": "https://github.com/tkem/cachetools/issues/423",
+  "repo_url": "https://github.com/rohith95-p/cachetools-bugfix-demo",
+  "pr_url": "https://github.com/rohith95-p/cachetools-bugfix-demo/pull/1",
+  "title": "RRCache.popitem() on an empty cache raises the choice function's exception instead of KeyError"
+}
