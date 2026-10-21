@@ -119,3 +119,37 @@ def test_sandbox_survives_undecodable_output(toy_repo):
     with Sandbox(toy_repo) as sb:
         code, out = sb.exec("printf 'caf\xe9 \xff\xfe ok'")
         assert isinstance(out, str) and "ok" in out
+
+
+# ---- write-action parsing: file content must survive quotes, backslashes and f-strings ----
+def test_write_via_raw_file_block_keeps_code_exactly():
+    code = 'def f(x):\n    return f"Expected \\"{x}\\"" + \'q\' + """doc"""\n'
+    reply = '{"action":"write","path":"a.py"}\n<<<FILE\n' + code + 'FILE>>>'
+    act = _parse_action(reply)
+    assert act["action"] == "write" and act["path"] == "a.py" and act["content"] == code
+
+
+def test_write_block_gets_trailing_newline_and_tolerates_prose_and_fences():
+    reply = 'Here you go:\n```\n{"action": "write", "path": "t.py"}\n<<<FILE\nx = 1\nFILE>>>\n```'
+    assert _parse_action(reply)["content"] == "x = 1\n"
+
+
+def test_legacy_inline_json_content_still_works():
+    assert _parse_action('{"action":"write","path":"a.py","content":"x = 1\n"}')["content"] == "x = 1\n"
+
+
+def test_raw_newlines_inside_json_strings_are_tolerated():
+    assert _parse_action('{"action":"write","path":"a.py","content":"line1\nline2"}')["content"] == "line1\nline2"
+
+
+def test_double_escaped_quotes_are_repaired():
+    # the exact mistake seen from Nemotron 3 Super: \\" where \" was meant
+    reply = '{"action":"write","path":"t.py","content":"assert r == [\'a\'], f\\\\"Expected {r}\\\\"\n"}'
+    act = _parse_action(reply)
+    assert act is not None and act["path"] == "t.py" and 'f"Expected {r}"' in act["content"]
+
+
+def test_broken_write_is_detected_so_the_hint_can_be_specific():
+    from patchwright.agent import _looks_like_broken_write
+    assert _looks_like_broken_write('{"action": "write", "path": "x", "content": "oops')
+    assert not _looks_like_broken_write('{"action": "run", "cmd": "ls"}')

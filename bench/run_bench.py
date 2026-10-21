@@ -58,7 +58,7 @@ def run_task(task: dict, config: str, root: Path, rep: int = 0) -> dict:
         if e["type"] in ("start", "end"):
             return
         t = {"t": e.get("t"), "type": e["type"], "tier": e.get("tier"), "tok": e.get("usage", {}).get("tokens")}
-        for k, n in (("action", 20), ("detail", 90), ("why", 220), ("reason", 120), ("obs", 110)):
+        for k, n in (("action", 20), ("detail", 90), ("why", 220), ("reason", 120), ("obs", 110), ("head", 160)):
             if e.get(k):
                 t[k] = str(e[k])[:n]
         if "ok" in e:

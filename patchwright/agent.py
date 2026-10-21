@@ -46,7 +46,11 @@ You are given a snapshot of the repository below, so you usually do not need to 
 
 Reply with exactly ONE JSON object per turn and nothing else. Actions:
 {"action":"run","cmd":"<bash command>"}
-{"action":"write","path":"<relative path>","content":"<full new content of the file>"}
+{"action":"write","path":"<relative path>"}
+<<<FILE
+<the full new content of the file, written raw: no JSON escaping, no quotes around it>
+FILE>>>
+(For "write", the JSON line contains only the action and path. The file content goes between <<<FILE and FILE>>> exactly as it should appear on disk.)
 {"action":"search","query":"<web search; only for unfamiliar library or error behaviour>"}
 {"action":"finish","repro_test_cmd":"<command that runs ONLY your new test, e.g. python -m pytest -q test_bug.py>","suite_cmd":"<command that runs the full suite, e.g. python -m pytest -q>","summary":"<root cause and fix in 2-4 sentences>"}
 
@@ -68,17 +72,32 @@ class Result:
     bad_replies: int = 0
 
 
+FILE_BLOCK = re.compile(r"<<<FILE[ \t]*\r?\n(.*?)\r?\n?[ \t]*FILE>>>", re.S)
+
+
 def _parse_action(text: str) -> dict | None:
+    """First JSON action in a reply. For `write`, the content comes from a raw <<<FILE ... FILE>>> block
+    (no escaping, so models cannot break it); inline JSON "content" is still accepted."""
     text = re.sub(r"<think>.*?</think>", "", text, flags=re.S).strip()
-    dec = json.JSONDecoder()
+    dec = json.JSONDecoder(strict=False)  # tolerate raw newlines inside strings
     for m in re.finditer(r"\{", text):
         try:
-            obj, _ = dec.raw_decode(text[m.start():])
+            obj, end = dec.raw_decode(text[m.start():])
         except json.JSONDecodeError:
             continue
         if isinstance(obj, dict) and "action" in obj:
+            if obj["action"] == "write" and not obj.get("content"):
+                block = FILE_BLOCK.search(text[m.start() + end:])
+                if block:
+                    obj["content"] = block.group(1).rstrip("\n") + "\n"
             return obj
+    if '"write"' in text and '\\\\"' in text:  # models sometimes double-escape quotes inside JSON strings
+        return _parse_action(text.replace('\\\\"', '\\"')) if text.replace('\\\\"', '\\"') != text else None
     return None
+
+
+def _looks_like_broken_write(text: str) -> bool:
+    return bool(re.search(r'"action"\s*:\s*"write"', text))
 
 
 def triage(llm: LLM, snapshot: str, issue: str) -> str:
@@ -200,7 +219,9 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     if bad_run >= MAX_BAD_CONSEC:
                         abort = f"{bad_run} unparseable replies in a row"
                         break
-                    msgs.append({"role": "user", "content": "Reply with one valid JSON action object."})
+                    hint = ("Your write action could not be parsed. Send the JSON line with only action and path, then the file "
+                            "content raw between <<<FILE and FILE>>>.") if _looks_like_broken_write(reply) else "Reply with one valid JSON action object."
+                    msgs.append({"role": "user", "content": hint})
                     continue
                 bad_run = 0
                 a = act["action"]
@@ -215,6 +236,8 @@ def run_agent(llm: LLM, repo_url: str, issue: str, ref: str | None = None, on_ev
                     obs = f"exit={code}\n{out}"
                 elif a == "write":
                     try:
+                        if not act.get("path") or act.get("content") is None:
+                            raise ValueError("a write needs a path and the file content between <<<FILE and FILE>>> on the lines after the JSON")
                         sb.write(act["path"], act["content"])
                         obs = f"wrote {act['path']}"
                     except Exception as e:  # noqa: BLE001
